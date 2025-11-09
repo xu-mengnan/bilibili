@@ -135,6 +135,9 @@ func GetComments(oid int64, pn int, ps int) (*CommentResponse, error) {
 		return nil, fmt.Errorf("读取响应失败: %v", err)
 	}
 
+	// 输出响应内容用于调试
+	// fmt.Printf("获取第%d页评论，响应: %s\n", pn, string(body))
+
 	// 解析JSON
 	var commentResp CommentResponse
 	if err := json.Unmarshal(body, &commentResp); err != nil {
@@ -210,16 +213,23 @@ func GetHotComments(oid int64, pn int, ps int) (*CommentResponse, error) {
 
 // GetAllComments 获取视频的所有评论
 func GetAllComments(oid int64) ([]CommentData, error) {
+	// 使用map来去重，以RPID为键
+	uniqueComments := make(map[int64]CommentData)
 	var allComments []CommentData
 
-	// 使用main端点获取热门评论
+	// 先使用main接口获取第一页热门评论（这个接口似乎更稳定）
 	firstPage, err := GetHotComments(oid, 1, 20)
 	if err != nil {
 		return nil, fmt.Errorf("获取第一页热门评论失败: %v", err)
 	}
 
-	// 添加第一页评论到结果中
-	allComments = append(allComments, firstPage.Data.Replies...)
+	// 添加第一页评论到结果中（去重）
+	for _, comment := range firstPage.Data.Replies {
+		if _, exists := uniqueComments[comment.RPID]; !exists {
+			uniqueComments[comment.RPID] = comment
+			allComments = append(allComments, comment)
+		}
+	}
 
 	// 计算总评论数
 	totalCount := firstPage.Data.Cursor.AllCount
@@ -229,9 +239,9 @@ func GetAllComments(oid int64) ([]CommentData, error) {
 	fmt.Printf("总评论数: %d, 总页数: %d\n", totalCount, totalPages)
 
 	// 获取剩余页的评论
-	for page := 2; page <= totalPages && page <= 5; page++ { // 限制最多获取5页以避免过多请求
+	for page := 2; page <= totalPages && page <= 5; page++ { // 限制最多获取20页以避免过多请求
 		// 添加延迟避免请求过于频繁
-		time.Sleep(300 * time.Millisecond)
+		time.Sleep(500 * time.Millisecond)
 
 		fmt.Printf("正在获取第 %d 页热门评论...\n", page)
 
@@ -242,15 +252,26 @@ func GetAllComments(oid int64) ([]CommentData, error) {
 			continue
 		}
 
-		allComments = append(allComments, resp.Data.Replies...)
+		// 输出调试信息
+		fmt.Printf("第%d页返回%d条热门评论\n", page, len(resp.Data.Replies))
+
+		// 添加评论到结果中（去重）
+		addedCount := 0
+		for _, comment := range resp.Data.Replies {
+			if _, exists := uniqueComments[comment.RPID]; !exists {
+				uniqueComments[comment.RPID] = comment
+				allComments = append(allComments, comment)
+				addedCount++
+			}
+		}
+
+		fmt.Printf("第%d页获取到%d条不重复的热门评论\n", page, addedCount)
 
 		// 如果某页没有返回数据，跳出循环
 		if len(resp.Data.Replies) == 0 {
 			fmt.Printf("第%d页没有返回数据，停止获取\n", page)
 			break
 		}
-
-		fmt.Printf("第%d页获取到%d条热门评论\n", page, len(resp.Data.Replies))
 	}
 
 	return allComments, nil
