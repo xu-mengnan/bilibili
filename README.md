@@ -18,6 +18,7 @@
 │   ├── handlers/     # HTTP处理器
 │   └── services/     # 业务逻辑层
 ├── pkg/              # 可被外部引用的公共代码
+│   ├── bilibili/     # Bilibili API接口
 │   ├── file/         # 文件处理（Excel、CSV）
 │   └── utils/        # 工具类
 └── scripts/          # 脚本文件
@@ -48,6 +49,43 @@ go run ./cmd/app
 - `GET /` - 欢迎页面
 - `GET /hello` - 简单的问候接口
 - `GET /user/{id}` - 根据ID获取用户信息
+
+## Bilibili API功能
+
+项目提供了访问Bilibili公开API的功能：
+
+- 获取视频信息：使用`pkg/bilibili/video.go`
+- 获取用户信息：使用`pkg/bilibili/user.go`
+- 获取评论信息：使用`pkg/bilibili/comment.go`
+
+### 示例
+
+获取视频评论数据：
+```go
+// 获取视频评论 (oid为视频aid, pn为页码, ps为每页数量)
+comments, err := bilibili.GetComments(123456, 1, 20)
+if err != nil {
+    log.Fatal("获取评论失败:", err)
+}
+```
+
+获取用户信息：
+```go
+// 获取用户信息 (mid为用户ID)
+user, err := bilibili.GetUser(123456)
+if err != nil {
+    log.Fatal("获取用户信息失败:", err)
+}
+```
+
+获取视频信息：
+```go
+// 通过BVID获取视频信息
+video, err := bilibili.GetVideoByBVID("BV1xx411c7mu")
+if err != nil {
+    log.Fatal("获取视频信息失败:", err)
+}
+```
 
 ## 文件处理功能
 
