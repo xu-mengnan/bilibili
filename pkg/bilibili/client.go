@@ -9,7 +9,10 @@ import (
 
 // BilibiliClient Bilibili API客户端
 type BilibiliClient struct {
-	client *http.Client
+	client  *http.Client
+	cookies map[string]string
+	appkey  string
+	appsec  string
 }
 
 // NewBilibiliClient 创建新的Bilibili客户端
@@ -19,6 +22,17 @@ func NewBilibiliClient() *BilibiliClient {
 			Timeout: 10 * time.Second,
 		},
 	}
+}
+
+// SetCookies 设置Cookie
+func (c *BilibiliClient) SetCookies(cookies map[string]string) {
+	c.cookies = cookies
+}
+
+// SetAppAuth 设置APP认证信息
+func (c *BilibiliClient) SetAppAuth(appkey, appsec string) {
+	c.appkey = appkey
+	c.appsec = appsec
 }
 
 // SendRequest 发送HTTP GET请求
@@ -34,6 +48,23 @@ func (c *BilibiliClient) SendRequest(url string) ([]byte, error) {
 	req.Header.Set("Accept", "application/json, text/plain, */*")
 	req.Header.Set("Accept-Language", "zh-CN,zh;q=0.9,en;q=0.8")
 	req.Header.Set("Referer", "https://www.bilibili.com/")
+
+	// 如果设置了Cookie，则添加到请求中
+	if c.cookies != nil {
+		var cookieStr string
+		for key, value := range c.cookies {
+			if cookieStr != "" {
+				cookieStr += "; "
+			}
+			cookieStr += key + "=" + value
+		}
+		req.Header.Set("Cookie", cookieStr)
+	}
+
+	// 如果设置了APP认证信息，则添加相应头部
+	if c.appkey != "" && c.appsec != "" {
+		req.Header.Set("APP-KEY", c.appkey)
+	}
 
 	// 发送请求
 	resp, err := c.client.Do(req)
