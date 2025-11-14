@@ -3,9 +3,7 @@ package bilibili
 import (
 	"encoding/json"
 	"fmt"
-	"io"
-	"net/http"
-	"time"
+	"net/url"
 )
 
 // VideoInfo 视频信息
@@ -57,39 +55,31 @@ type VideoResponse struct {
 // GetVideoByBVID 通过BVID获取视频信息
 func GetVideoByBVID(bvid string) (*VideoResponse, error) {
 	// 构造API URL
-	apiURL := fmt.Sprintf("https://api.bilibili.com/x/web-interface/view?bvid=%s", bvid)
+	apiURL := "https://api.bilibili.com/x/web-interface/view"
 
-	// 创建HTTP客户端
-	client := &http.Client{
-		Timeout: 10 * time.Second,
-	}
+	// 构造查询参数
+	params := url.Values{}
+	params.Add("bvid", bvid)
 
-	// 发起请求
-	req, err := http.NewRequest("GET", apiURL, nil)
+	// 完整URL
+	fullURL := apiURL + "?" + params.Encode()
+
+	// 使用公共客户端发送请求
+	client := NewBilibiliClient()
+	body, err := client.SendRequest(fullURL)
 	if err != nil {
-		return nil, fmt.Errorf("创建请求失败: %v", err)
-	}
-
-	// 设置User-Agent
-	req.Header.Set("User-Agent", "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/91.0.4472.124 Safari/537.36")
-
-	// 发送请求
-	resp, err := client.Do(req)
-	if err != nil {
-		return nil, fmt.Errorf("发送请求失败: %v", err)
-	}
-	defer resp.Body.Close()
-
-	// 读取响应
-	body, err := io.ReadAll(resp.Body)
-	if err != nil {
-		return nil, fmt.Errorf("读取响应失败: %v", err)
+		return nil, err
 	}
 
 	// 解析JSON
 	var videoResp VideoResponse
 	if err := json.Unmarshal(body, &videoResp); err != nil {
 		return nil, fmt.Errorf("解析JSON失败: %v", err)
+	}
+
+	// 检查API是否返回错误
+	if videoResp.Code != 0 {
+		return nil, fmt.Errorf("API返回错误，错误码: %d, 错误信息: %s", videoResp.Code, videoResp.Message)
 	}
 
 	return &videoResp, nil
@@ -98,39 +88,31 @@ func GetVideoByBVID(bvid string) (*VideoResponse, error) {
 // GetVideoByAID 通过AID获取视频信息
 func GetVideoByAID(aid int64) (*VideoResponse, error) {
 	// 构造API URL
-	apiURL := fmt.Sprintf("https://api.bilibili.com/x/web-interface/view?aid=%d", aid)
+	apiURL := "https://api.bilibili.com/x/web-interface/view"
 
-	// 创建HTTP客户端
-	client := &http.Client{
-		Timeout: 10 * time.Second,
-	}
+	// 构造查询参数
+	params := url.Values{}
+	params.Add("aid", fmt.Sprintf("%d", aid))
 
-	// 发起请求
-	req, err := http.NewRequest("GET", apiURL, nil)
+	// 完整URL
+	fullURL := apiURL + "?" + params.Encode()
+
+	// 使用公共客户端发送请求
+	client := NewBilibiliClient()
+	body, err := client.SendRequest(fullURL)
 	if err != nil {
-		return nil, fmt.Errorf("创建请求失败: %v", err)
-	}
-
-	// 设置User-Agent
-	req.Header.Set("User-Agent", "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/91.0.4472.124 Safari/537.36")
-
-	// 发送请求
-	resp, err := client.Do(req)
-	if err != nil {
-		return nil, fmt.Errorf("发送请求失败: %v", err)
-	}
-	defer resp.Body.Close()
-
-	// 读取响应
-	body, err := io.ReadAll(resp.Body)
-	if err != nil {
-		return nil, fmt.Errorf("读取响应失败: %v", err)
+		return nil, err
 	}
 
 	// 解析JSON
 	var videoResp VideoResponse
 	if err := json.Unmarshal(body, &videoResp); err != nil {
 		return nil, fmt.Errorf("解析JSON失败: %v", err)
+	}
+
+	// 检查API是否返回错误
+	if videoResp.Code != 0 {
+		return nil, fmt.Errorf("API返回错误，错误码: %d, 错误信息: %s", videoResp.Code, videoResp.Message)
 	}
 
 	return &videoResp, nil

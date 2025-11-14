@@ -3,8 +3,6 @@ package bilibili
 import (
 	"encoding/json"
 	"fmt"
-	"io"
-	"net/http"
 	"net/url"
 	"time"
 )
@@ -105,38 +103,12 @@ func GetComments(oid int64, pn int, ps int) (*CommentResponse, error) {
 	// 完整URL
 	fullURL := apiURL + "?" + params.Encode()
 
-	// 创建HTTP客户端
-	client := &http.Client{
-		Timeout: 10 * time.Second,
-	}
-
-	// 发起请求
-	req, err := http.NewRequest("GET", fullURL, nil)
+	// 使用公共客户端发送请求
+	client := NewBilibiliClient()
+	body, err := client.SendRequest(fullURL)
 	if err != nil {
-		return nil, fmt.Errorf("创建请求失败: %v", err)
+		return nil, err
 	}
-
-	// 设置User-Agent和其他请求头
-	req.Header.Set("User-Agent", "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/91.0.4472.124 Safari/537.36")
-	req.Header.Set("Accept", "application/json, text/plain, */*")
-	req.Header.Set("Accept-Language", "zh-CN,zh;q=0.9,en;q=0.8")
-	req.Header.Set("Referer", "https://www.bilibili.com/")
-
-	// 发送请求
-	resp, err := client.Do(req)
-	if err != nil {
-		return nil, fmt.Errorf("发送请求失败: %v", err)
-	}
-	defer resp.Body.Close()
-
-	// 读取响应
-	body, err := io.ReadAll(resp.Body)
-	if err != nil {
-		return nil, fmt.Errorf("读取响应失败: %v", err)
-	}
-
-	// 输出响应内容用于调试
-	// fmt.Printf("获取第%d页评论，响应: %s\n", pn, string(body))
 
 	// 解析JSON
 	var commentResp CommentResponse
@@ -155,7 +127,7 @@ func GetComments(oid int64, pn int, ps int) (*CommentResponse, error) {
 // GetHotComments 获取视频的热门评论 (使用main端点)
 func GetHotComments(oid int64, pn int, ps int) (*CommentResponse, error) {
 	// 构造API URL (使用main端点获取热门评论)
-	apiURL := "https://api.bilibili.com/x/v2/reply/main"
+	apiURL := "https://api.bilibili.com/x/v2/reply/wbi/main"
 
 	// 构造查询参数
 	params := url.Values{}
@@ -167,34 +139,11 @@ func GetHotComments(oid int64, pn int, ps int) (*CommentResponse, error) {
 	// 完整URL
 	fullURL := apiURL + "?" + params.Encode()
 
-	// 创建HTTP客户端
-	client := &http.Client{
-		Timeout: 10 * time.Second,
-	}
-
-	// 发起请求
-	req, err := http.NewRequest("GET", fullURL, nil)
+	// 使用公共客户端发送请求
+	client := NewBilibiliClient()
+	body, err := client.SendRequest(fullURL)
 	if err != nil {
-		return nil, fmt.Errorf("创建请求失败: %v", err)
-	}
-
-	// 设置User-Agent和其他请求头
-	req.Header.Set("User-Agent", "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/91.0.4472.124 Safari/537.36")
-	req.Header.Set("Accept", "application/json, text/plain, */*")
-	req.Header.Set("Accept-Language", "zh-CN,zh;q=0.9,en;q=0.8")
-	req.Header.Set("Referer", "https://www.bilibili.com/")
-
-	// 发送请求
-	resp, err := client.Do(req)
-	if err != nil {
-		return nil, fmt.Errorf("发送请求失败: %v", err)
-	}
-	defer resp.Body.Close()
-
-	// 读取响应
-	body, err := io.ReadAll(resp.Body)
-	if err != nil {
-		return nil, fmt.Errorf("读取响应失败: %v", err)
+		return nil, err
 	}
 
 	// 解析JSON

@@ -87,6 +87,14 @@ if err != nil {
 }
 ```
 
+## HTTP客户端优化
+
+为了提高代码复用性和维护性，项目引入了统一的HTTP客户端：
+
+- 统一的HTTP请求处理：使用`pkg/bilibili/client.go`
+- 所有Bilibili API调用都通过该客户端发送请求
+- 统一设置User-Agent、超时等参数
+
 ## 文件处理功能
 
 项目提供了处理Excel和CSV文件的功能：

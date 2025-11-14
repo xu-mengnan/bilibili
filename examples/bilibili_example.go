@@ -11,7 +11,7 @@ import (
 func main() {
 	// 示例：获取视频信息
 	fmt.Println("获取视频信息示例:")
-	videoResp, err := bilibili.GetVideoByBVID("BV1Qr1QBLEL5") // 使用之前测试过的视频
+	videoResp, err := bilibili.GetVideoByBVID("BV1shyYBjE9H") // 使用之前测试过的视频
 	if err != nil {
 		log.Printf("获取视频信息失败: %v", err)
 	} else if videoResp.Code != 0 {
