@@ -6,52 +6,6 @@ import (
 	"net/url"
 )
 
-// VideoInfo 视频信息
-type VideoInfo struct {
-	BVID      string `json:"bvid"`
-	AID       int64  `json:"aid"`
-	Title     string `json:"title"`
-	Desc      string `json:"desc"`
-	Created   int64  `json:"created"`
-	Duration  int    `json:"duration"`
-	Pic       string `json:"pic"`
-	Owner     Owner  `json:"owner"`
-	Stat      Stat   `json:"stat"`
-	Copyright int    `json:"copyright"`
-}
-
-// Owner 视频所有者信息
-type Owner struct {
-	Mid  int64  `json:"mid"`
-	Name string `json:"name"`
-	Face string `json:"face"`
-}
-
-// Stat 视频统计数据
-type Stat struct {
-	Aid       int64  `json:"aid"`
-	View      int    `json:"view"`
-	Danmaku   int    `json:"danmaku"`
-	Reply     int    `json:"reply"`
-	Favorite  int    `json:"favorite"`
-	Coin      int    `json:"coin"`
-	Share     int    `json:"share"`
-	Like      int    `json:"like"`
-	Dislike   int    `json:"dislike"`
-	NowRank   int    `json:"now_rank"`
-	HisRank   int    `json:"his_rank"`
-	NoReprint int    `json:"no_reprint"`
-	Copyright int    `json:"copyright"`
-	ArgueMsg  string `json:"argue_msg"`
-}
-
-// VideoResponse 视频信息响应
-type VideoResponse struct {
-	Code    int       `json:"code"`
-	Message string    `json:"message"`
-	Data    VideoInfo `json:"data"`
-}
-
 // GetVideoByBVID 通过BVID获取视频信息
 func GetVideoByBVID(bvid string) (*VideoResponse, error) {
 	// 构造API URL

@@ -6,25 +6,6 @@ import (
 	"net/url"
 )
 
-// UserInfo 用户信息
-type UserInfo struct {
-	ID       int64  `json:"mid"`
-	Name     string `json:"name"`
-	Sex      string `json:"sex"`
-	Sign     string `json:"sign"`
-	Level    int    `json:"level"`
-	Face     string `json:"face"` // 头像URL
-	Coins    int    `json:"coins"`
-	Birthday string `json:"birthday"`
-}
-
-// UserResponse 用户信息响应
-type UserResponse struct {
-	Code    int      `json:"code"`
-	Message string   `json:"message"`
-	Data    UserInfo `json:"data"`
-}
-
 // GetUser 获取用户信息
 func GetUser(mid int64) (*UserResponse, error) {
 	// 构造API URL
