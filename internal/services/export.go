@@ -110,31 +110,50 @@ func (es *ExportService) GetExportFile(fileID string) (*ExportFile, error) {
 	return exportFile, nil
 }
 
-// PrepareCommentRows 准备评论数据行
+// PrepareCommentRows 准备评论数据行（包含子评论）
 func (es *ExportService) PrepareCommentRows(comments []bilibili.CommentData) [][]string {
 	// 表头
 	rows := [][]string{
-		{"评论ID", "用户ID", "用户名", "等级", "评论内容", "点赞数", "评论时间"},
+		{"层级", "评论ID", "用户ID", "用户名", "等级", "评论内容", "点赞数", "评论时间"},
 	}
 
-	// 数据行
+	// 递归添加评论数据
 	for _, comment := range comments {
-		// 格式化时间
-		timeStr := time.Unix(int64(comment.Ctime), 0).Format("2006-01-02 15:04:05")
-
-		row := []string{
-			strconv.FormatInt(comment.RPID, 10),
-			strconv.FormatInt(comment.Mid, 10),
-			comment.Member.Uname,
-			strconv.Itoa(comment.Member.LevelInfo.CurrentLevel),
-			comment.Content.Message,
-			strconv.Itoa(comment.Like),
-			timeStr,
-		}
-		rows = append(rows, row)
+		es.addCommentRow(&rows, comment, 0)
 	}
 
 	return rows
+}
+
+// addCommentRow 递归添加评论行
+func (es *ExportService) addCommentRow(rows *[][]string, comment bilibili.CommentData, level int) {
+	// 格式化时间
+	timeStr := time.Unix(int64(comment.Ctime), 0).Format("2006-01-02 15:04:05")
+
+	// 层级标识
+	levelStr := "主评论"
+	if level > 0 {
+		levelStr = fmt.Sprintf("└ 回复 (L%d)", level)
+	}
+
+	row := []string{
+		levelStr,
+		strconv.FormatInt(comment.RPID, 10),
+		strconv.FormatInt(comment.Mid, 10),
+		comment.Member.Uname,
+		strconv.Itoa(comment.Member.LevelInfo.CurrentLevel),
+		comment.Content.Message,
+		strconv.Itoa(comment.Like),
+		timeStr,
+	}
+	*rows = append(*rows, row)
+
+	// 递归处理子评论
+	if len(comment.Replies) > 0 {
+		for _, reply := range comment.Replies {
+			es.addCommentRow(rows, reply, level+1)
+		}
+	}
 }
 
 // cleanupWorker 定期清理旧文件（2小时前）

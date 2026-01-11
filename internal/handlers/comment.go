@@ -6,6 +6,7 @@ import (
 	"time"
 
 	"bilibili/internal/services"
+	"bilibili/pkg/bilibili"
 	"github.com/gin-gonic/gin"
 )
 
@@ -25,14 +26,15 @@ func NewCommentHandlers(commentService *services.CommentService, exportService *
 
 // ScrapeRequest 爬取请求
 type ScrapeRequest struct {
-	VideoID   string `json:"video_id" binding:"required"`
-	AuthType  string `json:"auth_type"` // none, cookie, app
-	Cookie    string `json:"cookie"`
-	AppKey    string `json:"app_key"`
-	AppSecret string `json:"app_secret"`
-	PageLimit int    `json:"page_limit"`
-	DelayMs   int    `json:"delay_ms"`
-	SortMode  string `json:"sort_mode"` // time(按时间), hot(按热度)
+	VideoID        string `json:"video_id" binding:"required"`
+	AuthType       string `json:"auth_type"` // none, cookie, app
+	Cookie         string `json:"cookie"`
+	AppKey         string `json:"app_key"`
+	AppSecret      string `json:"app_secret"`
+	PageLimit      int    `json:"page_limit"`
+	DelayMs        int    `json:"delay_ms"`
+	SortMode       string `json:"sort_mode"`       // time(按时间), hot(按热度)
+	IncludeReplies bool   `json:"include_replies"` // 是否抓取子评论
 }
 
 // ScrapeResponse 爬取响应
@@ -53,7 +55,7 @@ func (h *CommentHandlers) ScrapeCommentsHandler(c *gin.Context) {
 
 	// 设置默认值
 	if req.PageLimit == 0 {
-		req.PageLimit = 50
+		req.PageLimit = 2
 	}
 	if req.DelayMs == 0 {
 		req.DelayMs = 300
@@ -79,6 +81,7 @@ func (h *CommentHandlers) ScrapeCommentsHandler(c *gin.Context) {
 		req.AppKey,
 		req.AppSecret,
 		req.SortMode,
+		req.IncludeReplies,
 		req.PageLimit,
 		req.DelayMs,
 	)
@@ -136,13 +139,14 @@ func (h *CommentHandlers) GetProgressHandler(c *gin.Context) {
 
 // CommentItem 评论项（简化版）
 type CommentItem struct {
-	RPID    int64  `json:"rpid"`
-	Author  string `json:"author"`
-	Avatar  string `json:"avatar"`
-	Content string `json:"content"`
-	Likes   int    `json:"likes"`
-	Time    string `json:"time"`
-	Level   int    `json:"level"`
+	RPID    int64         `json:"rpid"`
+	Author  string        `json:"author"`
+	Avatar  string        `json:"avatar"`
+	Content string        `json:"content"`
+	Likes   int           `json:"likes"`
+	Time    string        `json:"time"`
+	Level   int           `json:"level"`
+	Replies []CommentItem `json:"replies,omitempty"` // 子评论
 }
 
 // ResultResponse 结果响应
@@ -150,6 +154,29 @@ type ResultResponse struct {
 	TaskID     string        `json:"task_id"`
 	TotalCount int           `json:"total_count"`
 	Comments   []CommentItem `json:"comments"`
+}
+
+// convertToCommentItem 转换为CommentItem（包含子评论）
+func convertToCommentItem(comment bilibili.CommentData) CommentItem {
+	item := CommentItem{
+		RPID:    comment.RPID,
+		Author:  comment.Member.Uname,
+		Avatar:  comment.Member.Avatar,
+		Content: comment.Content.Message,
+		Likes:   comment.Like,
+		Time:    time.Unix(int64(comment.Ctime), 0).Format("2006-01-02 15:04:05"),
+		Level:   comment.Member.LevelInfo.CurrentLevel,
+	}
+
+	// 递归处理子评论
+	if len(comment.Replies) > 0 {
+		item.Replies = make([]CommentItem, 0, len(comment.Replies))
+		for _, reply := range comment.Replies {
+			item.Replies = append(item.Replies, convertToCommentItem(reply))
+		}
+	}
+
+	return item
 }
 
 // GetResultHandler 获取爬取结果
@@ -170,18 +197,10 @@ func (h *CommentHandlers) GetResultHandler(c *gin.Context) {
 		return
 	}
 
-	// 转换为简化格式
+	// 转换为简化格式（包含子评论）
 	items := make([]CommentItem, 0, len(comments))
 	for _, comment := range comments {
-		items = append(items, CommentItem{
-			RPID:    comment.RPID,
-			Author:  comment.Member.Uname,
-			Avatar:  comment.Member.Avatar,
-			Content: comment.Content.Message,
-			Likes:   comment.Like,
-			Time:    time.Unix(int64(comment.Ctime), 0).Format("2006-01-02 15:04:05"),
-			Level:   comment.Member.LevelInfo.CurrentLevel,
-		})
+		items = append(items, convertToCommentItem(comment))
 	}
 
 	c.JSON(http.StatusOK, ResultResponse{

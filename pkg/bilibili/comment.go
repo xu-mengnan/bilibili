@@ -290,3 +290,59 @@ func GetAllComments(oid int64, commentOptions ...CommentOption) ([]CommentData, 
 
 	return allComments, nil
 }
+
+// GetSubComments 获取评论的子评论（最多3条）
+// oid: 视频aid
+// root: 根评论的rpid
+// commentOptions: 可选的认证选项
+func GetSubComments(oid int64, root int64, commentOptions ...CommentOption) ([]CommentData, error) {
+	// 处理选项
+	opts := &CommentOptions{
+		sortMode: "time",
+	}
+	for _, option := range commentOptions {
+		option(opts)
+	}
+
+	// 如果没有提供客户端，创建一个新的
+	if opts.client == nil {
+		opts.client = NewBilibiliClient()
+	}
+
+	// 构造API URL (获取子评论的端点)
+	apiURL := "https://api.bilibili.com/x/v2/reply/reply"
+
+	// 构造查询参数
+	params := url.Values{}
+	params.Add("oid", fmt.Sprintf("%d", oid))
+	params.Add("root", fmt.Sprintf("%d", root))
+	params.Add("type", "1") // 视频评论类型
+	params.Add("pn", "1")   // 第一页
+	params.Add("ps", "3")   // 每页3条
+
+	// 获取WBI密钥并签名参数
+	wbiKey := GetWBIKey()
+	signedParams := SignParams(params, wbiKey)
+
+	// 完整URL
+	fullURL := apiURL + "?" + signedParams.Encode()
+
+	body, err := opts.client.SendRequest(fullURL)
+	if err != nil {
+		return nil, err
+	}
+
+	// 解析JSON
+	var commentResp CommentResponse
+	if err := json.Unmarshal(body, &commentResp); err != nil {
+		return nil, fmt.Errorf("解析JSON失败: %v", err)
+	}
+
+	// 检查API是否返回错误
+	if commentResp.Code != 0 {
+		// 子评论获取失败不应该导致整个任务失败，返回空列表
+		return []CommentData{}, nil
+	}
+
+	return commentResp.Data.Replies, nil
+}

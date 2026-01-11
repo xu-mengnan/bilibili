@@ -52,7 +52,7 @@
 
             <div class="form-group">
                 <label for="page-limit">最大爬取页数：</label>
-                <input type="number" id="page-limit" value="10" min="1" max="100">
+                <input type="number" id="page-limit" value="2" min="1" max="100">
             </div>
 
             <div class="form-group">
@@ -66,6 +66,12 @@
                     <label><input type="radio" name="sort-mode" value="time" checked> 按时间排序（最新评论）</label>
                     <label><input type="radio" name="sort-mode" value="hot"> 按热度排序（热门评论）</label>
                 </div>
+            </div>
+
+            <div class="form-group">
+                <label>
+                    <input type="checkbox" id="include-replies" checked> 同时抓取子评论（每条评论取前3条回复）
+                </label>
             </div>
 
             <button id="start-btn" class="btn-primary">开始爬取</button>

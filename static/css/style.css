@@ -388,3 +388,56 @@ footer {
         padding: 10px;
     }
 }
+
+/* 子评论样式 */
+.reply-row {
+    background-color: #f8f9fa;
+}
+
+.reply-row:hover {
+    background-color: #e9ecef;
+}
+
+.reply-row td {
+    border-left: 3px solid #667eea;
+}
+
+/* 折叠/展开状态 */
+.reply-row.collapsed {
+    display: none;
+}
+
+.reply-row.expanded {
+    display: table-row;
+}
+
+/* 展开/折叠按钮 */
+.toggle-replies {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    width: 24px;
+    height: 24px;
+    margin-right: 8px;
+    cursor: pointer;
+    border-radius: 4px;
+    transition: background-color 0.2s;
+    vertical-align: middle;
+}
+
+.toggle-replies:hover {
+    background-color: rgba(102, 126, 234, 0.1);
+}
+
+.toggle-replies svg {
+    color: #667eea;
+}
+
+/* 主评论行样式 */
+.main-comment-row {
+    cursor: default;
+}
+
+.main-comment-row:hover {
+    background-color: #f8f9fa;
+}

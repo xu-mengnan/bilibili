@@ -61,6 +61,7 @@ const App = {
             const pageLimit = parseInt(document.getElementById('page-limit').value) || 10;
             const delayMs = parseInt(document.getElementById('delay').value) || 300;
             const sortMode = document.querySelector('input[name="sort-mode"]:checked').value;
+            const includeReplies = document.getElementById('include-replies').checked;
 
             // 禁用开始按钮
             const startBtn = document.getElementById('start-btn');
@@ -76,7 +77,8 @@ const App = {
                 app_secret: appSecret,
                 page_limit: pageLimit,
                 delay_ms: delayMs,
-                sort_mode: sortMode
+                sort_mode: sortMode,
+                include_replies: includeReplies
             });
 
             this.currentTaskId = response.task_id;
@@ -211,23 +213,101 @@ const App = {
             return;
         }
 
-        comments.forEach(comment => {
-            const row = document.createElement('tr');
-            row.innerHTML = `
-                <td>
-                    <div class="comment-author">
-                        <img src="${comment.avatar}" alt="${comment.author}" class="comment-avatar">
-                        <div>
-                            <div><strong>${this.escapeHtml(comment.author)}</strong></div>
-                            <div style="font-size: 12px; color: #999;">Lv${comment.level}</div>
-                        </div>
+        comments.forEach((comment, index) => {
+            // 渲染主评论
+            this.renderCommentRow(tbody, comment, 0, index);
+
+            // 渲染子评论（默认隐藏）
+            if (comment.replies && comment.replies.length > 0) {
+                comment.replies.forEach(reply => {
+                    this.renderCommentRow(tbody, reply, 1, index);
+                });
+            }
+        });
+
+        // 绑定展开/折叠事件
+        this.bindToggleEvents();
+    },
+
+    /**
+     * 渲染单条评论行
+     * @param {HTMLElement} tbody - 表格body元素
+     * @param {Object} comment - 评论数据
+     * @param {number} level - 层级（0=主评论，1=子评论）
+     * @param {number} parentIndex - 父评论索引
+     */
+    renderCommentRow(tbody, comment, level, parentIndex) {
+        const row = document.createElement('tr');
+
+        if (level > 0) {
+            row.classList.add('reply-row');
+            row.classList.add('collapsed'); // 默认折叠
+            row.setAttribute('data-parent-index', parentIndex);
+        } else {
+            row.classList.add('main-comment-row');
+            row.setAttribute('data-comment-index', parentIndex);
+        }
+
+        // 根据层级添加缩进和展开按钮
+        let toggleButton = '';
+        let indent = '';
+
+        if (level === 0 && comment.replies && comment.replies.length > 0) {
+            // 主评论且有子评论，添加展开按钮
+            toggleButton = `<span class="toggle-replies" data-index="${parentIndex}">
+                <svg width="16" height="16" viewBox="0 0 16 16" fill="currentColor" style="transform: rotate(-90deg); transition: transform 0.3s;">
+                    <path d="M4.427 7.427l3.396 3.396a.25.25 0 00.354 0l3.396-3.396A.25.25 0 0011.396 7H4.604a.25.25 0 00-.177.427z"/>
+                </svg>
+            </span> `;
+        }
+
+        if (level > 0) {
+            indent = '&nbsp;&nbsp;&nbsp;&nbsp;↳ ';
+        }
+
+        row.innerHTML = `
+            <td>
+                <div class="comment-author" style="margin-left: ${level * 20}px;">
+                    ${toggleButton}
+                    <img src="${comment.avatar}" alt="${comment.author}" class="comment-avatar">
+                    <div>
+                        <div>${indent}<strong>${this.escapeHtml(comment.author)}</strong></div>
+                        <div style="font-size: 12px; color: #999;">Lv${comment.level}</div>
                     </div>
-                </td>
-                <td class="comment-content">${this.escapeHtml(comment.content)}</td>
-                <td>${comment.likes}</td>
-                <td>${comment.time}</td>
-            `;
-            tbody.appendChild(row);
+                </div>
+            </td>
+            <td class="comment-content">${this.escapeHtml(comment.content)}</td>
+            <td>${comment.likes}</td>
+            <td>${comment.time}</td>
+        `;
+        tbody.appendChild(row);
+    },
+
+    /**
+     * 绑定展开/折叠事件
+     */
+    bindToggleEvents() {
+        const toggleButtons = document.querySelectorAll('.toggle-replies');
+
+        toggleButtons.forEach(button => {
+            button.addEventListener('click', (e) => {
+                e.stopPropagation();
+                const index = button.getAttribute('data-index');
+                const replyRows = document.querySelectorAll(`tr.reply-row[data-parent-index="${index}"]`);
+                const svg = button.querySelector('svg');
+
+                replyRows.forEach(row => {
+                    if (row.classList.contains('collapsed')) {
+                        row.classList.remove('collapsed');
+                        row.classList.add('expanded');
+                        svg.style.transform = 'rotate(0deg)';
+                    } else {
+                        row.classList.remove('expanded');
+                        row.classList.add('collapsed');
+                        svg.style.transform = 'rotate(-90deg)';
+                    }
+                });
+            });
         });
     },
 

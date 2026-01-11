@@ -19,22 +19,23 @@ type CommentService struct {
 
 // ScrapeTask 爬取任务
 type ScrapeTask struct {
-	TaskID     string
-	VideoID    string
-	VideoTitle string
-	Status     string // running, completed, failed
-	Comments   []bilibili.CommentData
-	Progress   TaskProgress
-	StartTime  time.Time
-	EndTime    time.Time
-	Error      string
-	AuthType   string
-	Cookie     string
-	AppKey     string
-	AppSecret  string
-	PageLimit  int
-	DelayMs    int
-	SortMode   string // "time" 按时间, "hot" 按热度
+	TaskID         string
+	VideoID        string
+	VideoTitle     string
+	Status         string // running, completed, failed
+	Comments       []bilibili.CommentData
+	Progress       TaskProgress
+	StartTime      time.Time
+	EndTime        time.Time
+	Error          string
+	AuthType       string
+	Cookie         string
+	AppKey         string
+	AppSecret      string
+	PageLimit      int
+	DelayMs        int
+	SortMode       string // "time" 按时间, "hot" 按热度
+	IncludeReplies bool   // 是否包含子评论
 }
 
 // TaskProgress 任务进度
@@ -55,7 +56,7 @@ func NewCommentService() *CommentService {
 }
 
 // StartScrapeTask 启动爬取任务
-func (cs *CommentService) StartScrapeTask(videoID, authType, cookie, appKey, appSecret, sortMode string, pageLimit, delayMs int) (string, error) {
+func (cs *CommentService) StartScrapeTask(videoID, authType, cookie, appKey, appSecret, sortMode string, includeReplies bool, pageLimit, delayMs int) (string, error) {
 	taskID := uuid.New().String()
 
 	// 设置默认排序模式
@@ -64,19 +65,20 @@ func (cs *CommentService) StartScrapeTask(videoID, authType, cookie, appKey, app
 	}
 
 	task := &ScrapeTask{
-		TaskID:    taskID,
-		VideoID:   videoID,
-		Status:    "running",
-		Comments:  []bilibili.CommentData{},
-		Progress:  TaskProgress{CurrentPage: 0, TotalComments: 0, PageLimit: pageLimit},
-		StartTime: time.Now(),
-		AuthType:  authType,
-		Cookie:    cookie,
-		AppKey:    appKey,
-		AppSecret: appSecret,
-		PageLimit: pageLimit,
-		DelayMs:   delayMs,
-		SortMode:  sortMode,
+		TaskID:         taskID,
+		VideoID:        videoID,
+		Status:         "running",
+		Comments:       []bilibili.CommentData{},
+		Progress:       TaskProgress{CurrentPage: 0, TotalComments: 0, PageLimit: pageLimit},
+		StartTime:      time.Now(),
+		AuthType:       authType,
+		Cookie:         cookie,
+		AppKey:         appKey,
+		AppSecret:      appSecret,
+		PageLimit:      pageLimit,
+		DelayMs:        delayMs,
+		SortMode:       sortMode,
+		IncludeReplies: includeReplies,
 	}
 
 	cs.mu.Lock()
@@ -216,6 +218,21 @@ func (cs *CommentService) executeScrapingTask(taskID string) {
 		// 添加评论（去重）
 		if commentsResp.Data.Replies != nil {
 			for _, comment := range commentsResp.Data.Replies {
+				// 如果需要获取子评论
+				if task.IncludeReplies && comment.RCount > 0 {
+					// 添加延迟避免请求过快
+					time.Sleep(200 * time.Millisecond)
+
+					// 获取前3条子评论
+					subComments, err := bilibili.GetSubComments(oid, comment.RPID, opts...)
+					if err == nil && len(subComments) > 0 {
+						// 只取前3条
+						if len(subComments) > 3 {
+							subComments = subComments[:3]
+						}
+						comment.Replies = subComments
+					}
+				}
 				commentMap[comment.RPID] = comment
 			}
 		}

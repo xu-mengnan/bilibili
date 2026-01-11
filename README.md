@@ -74,15 +74,20 @@ go run ./cmd/app
 - **按时间排序**（默认）：获取最新发布的评论
 - **按热度排序**：获取点赞数最高的热门评论
 
-#### 2. 认证支持
+#### 2. 子评论抓取
+- **可选抓取子评论**：每条评论可获取最多3条子评论（回复）
+- **灵活控制**：可在页面上选择是否抓取子评论
+
+#### 3. 认证支持
 - 无认证：访问公开评论
 - Cookie认证：使用SESSDATA访问完整评论
 - APP认证：使用APP Key/Secret访问
 
-#### 3. Web可视化界面
+#### 4. Web可视化界面
 - 实时爬取进度显示
 - 评论数据可视化图表
 - 支持数据筛选和排序
+- 支持子评论抓取（点击展开/折叠）
 - 导出Excel/CSV格式
 
 ### 示例
@@ -168,10 +173,11 @@ bin\app.exe
 3. **选择排序模式**：
    - **按时间排序（最新评论）**：获取最新发布的评论
    - **按热度排序（热门评论）**：获取点赞数最高的热门评论
-4. 配置其他参数（认证、页数、延迟等）
-5. 点击"开始爬取"
-6. 查看实时进度和可视化结果
-7. 可导出为Excel或CSV格式
+4. **选择是否抓取子评论**：勾选"同时抓取子评论"可获取每条评论的前3条回复
+5. 配置其他参数（认证、页数、延迟等）
+6. 点击"开始爬取"
+7. 查看实时进度和可视化结果
+8. 可导出为Excel或CSV格式
 
 ### HTTP API使用
 
@@ -185,24 +191,37 @@ curl -X POST http://localhost:8080/api/comments/scrape \
     "video_id": "BV1uT4y1P7CX",
     "page_limit": 10,
     "delay_ms": 300,
-    "sort_mode": "time"
+    "sort_mode": "time",
+    "include_replies": true
   }'
 
-# 按热度排序
+# 按热度排序，抓取子评论
 curl -X POST http://localhost:8080/api/comments/scrape \
   -H "Content-Type: application/json" \
   -d '{
     "video_id": "BV1uT4y1P7CX",
     "page_limit": 10,
     "delay_ms": 300,
-    "sort_mode": "hot"
+    "sort_mode": "hot",
+    "include_replies": true
   }'
 ```
 
 ## 详细文档
 
-- [评论排序模式功能说明](docs/comment_sort_mode.md) - 排序模式的完整使用指南
+### 功能文档
+- [评论排序模式与子评论抓取功能说明](docs/comment_sort_mode.md) - 完整使用指南
 - [代码示例](examples/comment_sortmode_example.go) - 排序模式的代码示例
+
+### 开发文档
+- [API参考文档](docs/api-reference.md) - 详细的HTTP API接口说明
+- [开发指南](docs/development-guide.md) - 开发环境配置、代码规范、开发流程
+- [故障排查指南](docs/troubleshooting.md) - 常见问题诊断和解决方案
+
+### 变更日志
+- [变更日志目录](changelogs/README.md) - 所有版本的更新记录
+- [v1.2.0 - 子评论抓取功能](changelogs/2026-01-12-sub-comments-feature.md)
+- [v1.1.0 - 评论排序模式功能](changelogs/2026-01-11-comment-sort-mode.md)
 
 ## 使用建议
 
@@ -218,11 +237,25 @@ curl -X POST http://localhost:8080/api/comments/scrape \
 - 分析热门话题和讨论焦点
 - 找出最有价值的评论内容
 
+### 何时使用子评论抓取
+- **开启子评论抓取**：
+  - 想要更完整的评论数据
+  - 分析评论的讨论深度
+  - 了解评论引发的互动内容
+- **关闭子评论抓取**：
+  - 只需要主评论信息
+  - 加快抓取速度
+  - 减少API请求次数
+
 ### 注意事项
 - 排序模式必须是 `"time"` 或 `"hot"`
 - 不同排序模式可能返回不同的评论集合
 - 热门评论通常点赞数较高，但不一定是最新的
 - 使用认证（Cookie或APP）可以获取更完整的评论数据
+- 开启子评论抓取会增加请求次数，建议适当增加延迟时间（如500ms以上）
+- 每条评论最多获取3条子评论
+- 子评论在页面上默认折叠，点击主评论前的图标可展开/折叠
+- 默认最大爬取页数为2页，可根据需要调整
 
 ## HTTP客户端优化
 

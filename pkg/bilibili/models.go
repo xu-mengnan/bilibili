@@ -47,7 +47,7 @@ type CommentData struct {
 	Parent    int64          `json:"parent"`
 	Dialog    int64          `json:"dialog"`
 	Count     int            `json:"count"`
-	RCount    int            `json:"rcount"`
+	RCount    int            `json:"rcount"` // 子评论数量
 	State     int            `json:"state"`
 	FansGrade int            `json:"fansgrade"`
 	Attr      int            `json:"attr"`
@@ -60,6 +60,7 @@ type CommentData struct {
 	MidStr    string         `json:"mid_str"`
 	Content   CommentContent `json:"content"`
 	Member    CommentMember  `json:"member"`
+	Replies   []CommentData  `json:"replies"` // 子评论列表
 }
 
 // CommentResponse 代表评论API的响应
