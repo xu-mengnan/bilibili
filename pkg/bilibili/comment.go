@@ -26,17 +26,51 @@ func WithAppAuth(appkey, appsec string) AuthOption {
 	}
 }
 
-// GetComments 获取视频评论 (使用main端点)
-func GetComments(oid int64, pn int, ps int, authOptions ...AuthOption) (*CommentResponse, error) {
-	// 构造API URL (使用main端点)
+// GetComments 获取视频评论 (使用wbi/main端点)
+// next: 用于翻页的游标值（从上一页响应的 Cursor.Next 获取）
+// nextOffset: 可选的 next_offset 字符串（从上一页响应的 Cursor.PaginationReply.NextOffset 获取）
+func GetComments(oid int64, pn int, ps int, next int, authOptions ...AuthOption) (*CommentResponse, error) {
+	return GetCommentsWithOffset(oid, pn, ps, next, "", authOptions...)
+}
+
+// GetCommentsWithOffset 获取视频评论（支持 next_offset 字符串）
+func GetCommentsWithOffset(oid int64, pn int, ps int, next int, nextOffset string, authOptions ...AuthOption) (*CommentResponse, error) {
+	// 构造API URL (使用wbi/main端点)
 	apiURL := "https://api.bilibili.com/x/v2/reply/main"
 
 	// 构造查询参数
 	params := url.Values{}
 	params.Add("oid", fmt.Sprintf("%d", oid))
-	params.Add("pn", fmt.Sprintf("%d", pn))
-	params.Add("ps", fmt.Sprintf("%d", ps))
+
+	// 构造 pagination_str 参数
+	if pn == 1 || (next == 0 && nextOffset == "") {
+		// 第一页时 pagination_str 使用默认格式
+		params.Add("pagination_str", `{"offset":"{\"type\":1,\"direction\":1,\"data\":{}}"}`)
+	} else if nextOffset != "" {
+		// 如果提供了 next_offset 字符串，直接使用它
+		// next_offset 可能已经是 JSON 编码的字符串，需要检查格式
+		// 如果 nextOffset 已经是完整的 pagination_str 格式，直接使用
+		// 否则包装成正确的格式
+		var paginationStr string
+		if len(nextOffset) > 0 && nextOffset[0] == '{' {
+			// 如果已经是 JSON 对象格式，直接使用
+			paginationStr = nextOffset
+		} else {
+			// 否则包装成 {"offset":"..."} 格式，需要对 nextOffset 进行 JSON 转义
+			// 使用 JSON 编码确保特殊字符被正确转义
+			offsetJSON, _ := json.Marshal(nextOffset)
+			paginationStr = fmt.Sprintf(`{"offset":%s}`, string(offsetJSON))
+		}
+		params.Add("pagination_str", paginationStr)
+	} else {
+		// 使用 next 值构造 pagination_str
+		// 尝试使用 cursor 格式
+		paginationStr := fmt.Sprintf(`{"offset":"{\"type\":1,\"direction\":1,\"data\":{\"cursor\":%d}}"}`, next)
+		params.Add("pagination_str", paginationStr)
+	}
+
 	params.Add("type", "1") // 视频评论类型
+	params.Add("mode", "2") // 按时间排序
 
 	// 使用公共客户端发送请求
 	client := NewBilibiliClient()
@@ -85,7 +119,7 @@ func GetCommentsFallback(oid int64, pn int, ps int, authOptions ...AuthOption) (
 	// 构造查询参数
 	params := url.Values{}
 	params.Add("oid", fmt.Sprintf("%d", oid))
-	params.Add("pn", fmt.Sprintf("%d", pn))
+	params.Add("pn", fmt.Sprintf("%d", pn)) // fallback接口使用pn参数
 	params.Add("ps", fmt.Sprintf("%d", ps))
 	params.Add("type", "1") // 视频评论类型
 	params.Add("sort", "2") // 按时间倒序排序

@@ -10,18 +10,15 @@
 ├── cmd/              # 程序入口
 │   └── app/          # 主应用程序
 ├── configs/          # 配置文件
-├── deployments/      # 部署相关文件
-├── docs/             # 文档
 ├── examples/         # 示例代码
 ├── go.mod            # Go模块文件
 ├── internal/         # 私有应用程序代码
 │   ├── handlers/     # HTTP处理器
 │   └── services/     # 业务逻辑层
-├── pkg/              # 可被外部引用的公共代码
-│   ├── bilibili/     # Bilibili API接口
-│   ├── file/         # 文件处理（Excel、CSV）
-│   └── utils/        # 工具类
-└── scripts/          # 脚本文件
+└── pkg/              # 可被外部引用的公共代码
+    ├── bilibili/     # Bilibili API接口
+    ├── file/         # 文件处理（Excel、CSV）
+    └── utils/        # 工具类
 ```
 
 ## 快速开始
@@ -62,8 +59,8 @@ go run ./cmd/app
 
 获取视频评论数据：
 ```go
-// 获取视频评论 (oid为视频aid, pn为页码, ps为每页数量)
-comments, err := bilibili.GetComments(123456, 1, 20)
+// 获取视频评论 (oid为视频aid, pn为页码, ps为每页数量, next为游标)
+comments, err := bilibili.GetComments(123456, 1, 20, 0)
 if err != nil {
     log.Fatal("获取评论失败:", err)
 }

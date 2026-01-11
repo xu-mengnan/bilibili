@@ -75,7 +75,11 @@ type CommentResponse struct {
 			Size  int `json:"size"`
 		} `json:"page"`
 		Cursor struct {
-			AllCount int `json:"all_count"`
+			AllCount        int `json:"all_count"`
+			PaginationReply struct {
+				NextOffset string `json:"next_offset"`
+			} `json:"pagination_reply"`
+			Next int `json:"next"`
 		} `json:"cursor"`
 	} `json:"data"`
 }
