@@ -1,7 +1,16 @@
 {
   "permissions": {
     "allow": [
-      "Bash(go build:*)"
+      "Bash(go build:*)",
+      "Bash(go get:*)",
+      "Bash(go mod tidy:*)",
+      "Bash(set GOPROXY=https://goproxy.io,direct)",
+      "Bash(set:*)",
+      "Bash(set HTTPS_PROXY=)",
+      "Bash(if not exist exports mkdir exports)",
+      "Bash(powershell -Command:*)",
+      "Bash(go run:*)",
+      "Bash(timeout /t 3)"
     ]
   }
 }

@@ -4,6 +4,7 @@ go 1.17
 
 require (
 	github.com/gin-gonic/gin v1.7.7
+	github.com/google/uuid v1.6.0
 	github.com/xuri/excelize/v2 v2.7.1
 )
 

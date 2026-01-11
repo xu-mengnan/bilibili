@@ -1,0 +1,183 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Bilibili评论爬取工具</title>
+    <link rel="stylesheet" href="/static/css/style.css">
+    <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.1/dist/chart.umd.min.js"></script>
+</head>
+<body>
+    <div class="container">
+        <!-- Header -->
+        <header>
+            <h1>Bilibili 评论爬取与可视化</h1>
+            <p>实时爬取B站视频评论，支持数据可视化和导出</p>
+        </header>
+
+        <!-- Input Section -->
+        <section id="input-section" class="card">
+            <h2>1. 输入视频信息</h2>
+            <div class="form-group">
+                <label for="video-input">视频链接或BV号：</label>
+                <input type="text" id="video-input" placeholder="例如：BV1shyYBjE9H 或 https://www.bilibili.com/video/BV1shyYBjE9H">
+            </div>
+
+            <div class="form-group">
+                <label>认证方式：</label>
+                <div class="radio-group">
+                    <label><input type="radio" name="auth-type" value="none" checked> 无认证（公开接口）</label>
+                    <label><input type="radio" name="auth-type" value="cookie"> Cookie认证</label>
+                    <label><input type="radio" name="auth-type" value="app"> APP认证</label>
+                </div>
+            </div>
+
+            <div id="cookie-auth" class="auth-section" style="display: none;">
+                <div class="form-group">
+                    <label for="sessdata">SESSDATA Cookie：</label>
+                    <input type="text" id="sessdata" placeholder="输入SESSDATA值">
+                </div>
+            </div>
+
+            <div id="app-auth" class="auth-section" style="display: none;">
+                <div class="form-group">
+                    <label for="app-key">APP Key：</label>
+                    <input type="text" id="app-key" placeholder="输入APP Key">
+                </div>
+                <div class="form-group">
+                    <label for="app-secret">APP Secret：</label>
+                    <input type="text" id="app-secret" placeholder="输入APP Secret">
+                </div>
+            </div>
+
+            <div class="form-group">
+                <label for="page-limit">最大爬取页数：</label>
+                <input type="number" id="page-limit" value="10" min="1" max="100">
+            </div>
+
+            <div class="form-group">
+                <label for="delay">请求间隔（毫秒）：</label>
+                <input type="number" id="delay" value="300" min="100" max="5000">
+            </div>
+
+            <div class="form-group">
+                <label>排序模式：</label>
+                <div class="radio-group">
+                    <label><input type="radio" name="sort-mode" value="time" checked> 按时间排序（最新评论）</label>
+                    <label><input type="radio" name="sort-mode" value="hot"> 按热度排序（热门评论）</label>
+                </div>
+            </div>
+
+            <button id="start-btn" class="btn-primary">开始爬取</button>
+        </section>
+
+        <!-- Progress Section -->
+        <section id="progress-section" class="card" style="display: none;">
+            <h2>2. 爬取进度</h2>
+            <div id="video-info" class="video-info">
+                <p><strong>视频标题：</strong><span id="video-title">加载中...</span></p>
+            </div>
+            <div class="progress-container">
+                <div class="progress-bar">
+                    <div id="progress-fill" class="progress-fill"></div>
+                </div>
+                <p id="progress-text">准备中...</p>
+            </div>
+            <div class="stats-row">
+                <div class="stat-item">
+                    <span class="stat-label">当前页数：</span>
+                    <span id="current-page" class="stat-value">0</span>
+                </div>
+                <div class="stat-item">
+                    <span class="stat-label">评论总数：</span>
+                    <span id="total-comments" class="stat-value">0</span>
+                </div>
+                <div class="stat-item">
+                    <span class="stat-label">已用时间：</span>
+                    <span id="elapsed-time" class="stat-value">0s</span>
+                </div>
+            </div>
+            <button id="cancel-btn" class="btn-secondary" style="display: none;">取消爬取</button>
+        </section>
+
+        <!-- Results Section -->
+        <section id="results-section" class="card" style="display: none;">
+            <h2>3. 爬取结果</h2>
+
+            <!-- Filter & Sort Tools -->
+            <div class="tools-bar">
+                <div class="tool-group">
+                    <label for="sort-select">排序：</label>
+                    <select id="sort-select">
+                        <option value="time_desc">时间（新→旧）</option>
+                        <option value="time_asc">时间（旧→新）</option>
+                        <option value="like_desc">点赞（高→低）</option>
+                        <option value="like_asc">点赞（低→高）</option>
+                    </select>
+                </div>
+                <div class="tool-group">
+                    <label for="keyword-input">关键词：</label>
+                    <input type="text" id="keyword-input" placeholder="搜索评论内容或用户名">
+                </div>
+                <button id="filter-btn" class="btn-secondary">应用筛选</button>
+            </div>
+
+            <!-- Charts -->
+            <div class="charts-container">
+                <div class="chart-box">
+                    <h3>评论时间分布</h3>
+                    <canvas id="time-chart"></canvas>
+                </div>
+                <div class="chart-box">
+                    <h3>点赞数分布</h3>
+                    <canvas id="likes-chart"></canvas>
+                </div>
+            </div>
+
+            <!-- Comments Table -->
+            <div class="table-container">
+                <h3>评论列表（<span id="comment-count">0</span>条）</h3>
+                <table id="comments-table">
+                    <thead>
+                        <tr>
+                            <th>用户</th>
+                            <th>评论内容</th>
+                            <th>点赞数</th>
+                            <th>时间</th>
+                        </tr>
+                    </thead>
+                    <tbody id="comments-tbody">
+                    </tbody>
+                </table>
+            </div>
+
+            <!-- Export Section -->
+            <div class="export-section">
+                <h3>导出数据</h3>
+                <div class="export-controls">
+                    <select id="export-format">
+                        <option value="xlsx">Excel (.xlsx)</option>
+                        <option value="csv">CSV (.csv)</option>
+                    </select>
+                    <input type="text" id="export-filename" placeholder="文件名（可选）">
+                    <button id="export-btn" class="btn-primary">导出</button>
+                </div>
+                <div id="download-link" style="display: none;">
+                    <p>导出成功！<a id="download-url" href="#" download>点击下载</a></p>
+                </div>
+            </div>
+        </section>
+
+        <!-- Error Section -->
+        <div id="error-message" class="error-message" style="display: none;"></div>
+    </div>
+
+    <footer>
+        <p>Bilibili 评论爬取工具 | 仅用于学习研究</p>
+    </footer>
+
+    <script src="/static/js/api.js"></script>
+    <script src="/static/js/charts.js"></script>
+    <script src="/static/js/app.js"></script>
+</body>
+</html>

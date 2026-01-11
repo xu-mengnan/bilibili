@@ -15,10 +15,20 @@ import (
 func SetupRoutes() *gin.Engine {
 	r := gin.Default()
 
-	r.GET("/", func(c *gin.Context) {
-		c.String(http.StatusOK, "Welcome to Bilibili API")
-	})
+	// 初始化服务
+	commentService := services.NewCommentService()
+	videoService := services.NewVideoService()
+	exportService := services.NewExportService("./exports")
 
+	// 初始化处理器
+	commentHandlers := handlers.NewCommentHandlers(commentService, exportService)
+	videoHandlers := handlers.NewVideoHandlers(videoService)
+
+	// 静态文件服务
+	r.Static("/static", "./static")
+	r.StaticFile("/", "./static/index.html")
+
+	// 原有路由
 	r.GET("/hello", func(c *gin.Context) {
 		handlers.GinHelloHandler(c)
 	})
@@ -48,6 +58,23 @@ func SetupRoutes() *gin.Engine {
 		// 返回JSON格式的用户信息
 		c.JSON(http.StatusOK, user)
 	})
+
+	// API路由组
+	apiGroup := r.Group("/api")
+	{
+		// 评论相关
+		apiGroup.POST("/comments/scrape", commentHandlers.ScrapeCommentsHandler)
+		apiGroup.GET("/comments/progress/:task_id", commentHandlers.GetProgressHandler)
+		apiGroup.GET("/comments/result/:task_id", commentHandlers.GetResultHandler)
+		apiGroup.POST("/comments/export", commentHandlers.ExportCommentsHandler)
+		apiGroup.GET("/comments/stats/:task_id", commentHandlers.GetCommentsStatsHandler)
+
+		// 下载文件
+		apiGroup.GET("/download/:file_id", commentHandlers.DownloadFileHandler)
+
+		// 视频相关
+		apiGroup.POST("/videos/info", videoHandlers.GetVideoInfoHandler)
+	}
 
 	return r
 }

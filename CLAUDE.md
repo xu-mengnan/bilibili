@@ -58,6 +58,14 @@ bilibili.GetComments(oid, pn, ps, next, bilibili.WithCookie(sessdata))
 bilibili.GetComments(oid, pn, ps, next, bilibili.WithAppAuth(appkey, appsec))
 ```
 
+**排序模式**: 评论支持按时间或热度排序：
+```go
+bilibili.GetComments(oid, pn, ps, next, bilibili.WithSortMode("time"))  // 按时间排序（默认）
+bilibili.GetComments(oid, pn, ps, next, bilibili.WithSortMode("hot"))   // 按热度排序
+// 可组合使用：
+bilibili.GetComments(oid, pn, ps, next, bilibili.WithCookie(sessdata), bilibili.WithSortMode("hot"))
+```
+
 **分页机制**: 评论使用游标分页，通过响应中 `Cursor` 字段的 `next`（整数）和 `nextOffset`（字符串）进行翻页，而非传统页码。
 
 ## 依赖
