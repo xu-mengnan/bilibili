@@ -290,8 +290,16 @@ const API = {
                                 }
                                 if (currentEvent === 'content' && content.length > 0) {
                                     chunkCount++;
-                                    console.log('[API] Chunk', chunkCount, 'length:', content.length, 'content:', content.substring(0, 50) + '...');
-                                    onChunk && onChunk(content);
+                                    // 解析 JSON 编码的内容
+                                    let decodedContent;
+                                    try {
+                                        decodedContent = JSON.parse(content);
+                                    } catch (e) {
+                                        // 如果不是 JSON 格式，直接使用原内容
+                                        decodedContent = content;
+                                    }
+                                    console.log('[API] Chunk', chunkCount, 'length:', decodedContent.length, 'content:', decodedContent.substring(0, 50) + '...');
+                                    onChunk && onChunk(decodedContent);
                                 } else if (currentEvent === 'error' && content.length > 0) {
                                     console.error('[API] Error from server:', content);
                                     if (!doneCalled) {

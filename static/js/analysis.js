@@ -251,37 +251,27 @@ class AnalysisPage {
             // 使用流式 API
             API.analyzeStream(
                 request,
-                // onChunk - 接收每个数据块
-                (chunk) => {
-                    fullContent += chunk;
-                    // 实时渲染 Markdown（使用 marked.parse，但需要处理不完整的 Markdown）
-                    try {
-                        // 检查 marked 是否可用
-                        if (typeof marked !== 'undefined' && marked.parse) {
-                            const html = marked.parse(fullContent);
-                            streamingContent.innerHTML = html || '<p class="streaming-placeholder">正在生成...</p>';
-                        } else {
-                            // marked 不可用，显示纯文本（保留换行）
-                            streamingContent.innerHTML = `<pre style="white-space: pre-wrap; font-family: inherit;">${this.escapeHtml(fullContent)}</pre>`;
-                        }
-                    } catch (e) {
-                        console.error('Markdown parse error:', e);
-                        // 如果 Markdown 解析失败（可能是不完整的 Markdown），显示纯文本
-                        streamingContent.innerHTML = `<pre style="white-space: pre-wrap; font-family: inherit;">${this.escapeHtml(fullContent)}</pre>`;
-                    }
+                // onChunk - 接收累积的完整内容
+                (accumulatedContent) => {
+                    fullContent = accumulatedContent; // 直接使用累积的完整内容
+                    // 流式渲染期间显示纯文本（保留换行），避免解析不完整的 markdown
+                    streamingContent.innerHTML = `<pre style="white-space: pre-wrap; font-family: inherit; line-height: 1.8;">${this.escapeHtml(fullContent)}</pre>`;
                     // 自动滚动到底部
                     streamingContent.scrollTop = streamingContent.scrollHeight;
                 },
                 // onDone - 分析完成
                 () => {
+                    console.log('[Analysis] Stream completed, total content length:', fullContent.length);
+                    console.log('[Analysis] First 200 chars:', fullContent.substring(0, 200));
                     const timestamp = new Date().toLocaleString();
                     let finalHtml;
                     try {
-                        // 检查 marked 是否可用
-                        if (typeof marked !== 'undefined' && marked.parse) {
-                            finalHtml = marked.parse(fullContent);
+                        // 检查 mdParser 是否可用
+                        if (window.mdParser && typeof window.mdParser.render === 'function') {
+                            finalHtml = window.mdParser.render(fullContent);
+                            console.log('[Analysis] Rendered HTML length:', finalHtml.length);
                         } else {
-                            // marked 不可用，显示纯文本（保留换行）
+                            // 不可用，显示纯文本（保留换行）
                             finalHtml = `<pre style="white-space: pre-wrap; font-family: inherit;">${this.escapeHtml(fullContent)}</pre>`;
                         }
                     } catch (e) {
@@ -296,8 +286,8 @@ class AnalysisPage {
                         </div>
                         <div class="result-content markdown-body">${finalHtml}</div>
                         <div class="result-actions">
-                            <button class="btn-secondary btn-small copy-btn">复制结果</button>
-                            <button class="btn-secondary btn-small download-btn">下载Markdown</button>
+                            <button class="btn copy-btn">复制结果</button>
+                            <button class="btn download-btn">下载Markdown</button>
                         </div>
                     `;
 
@@ -390,9 +380,13 @@ class AnalysisPage {
     }
 
     escapeHtml(text) {
-        const div = document.createElement('div');
-        div.textContent = text;
-        return div.innerHTML;
+        // 手动转义 HTML 特殊字符，保留换行符
+        return text
+            .replace(/&/g, '&amp;')
+            .replace(/</g, '&lt;')
+            .replace(/>/g, '&gt;')
+            .replace(/"/g, '&quot;')
+            .replace(/'/g, '&#039;');
     }
 }
 

@@ -20,7 +20,9 @@
       "Bash(while read pid)",
       "Bash(do taskkill //F //PID $pid)",
       "Bash(done)",
-      "Bash(cmd //c \"FOR /F \"\"tokens=5\"\" %a IN \\(''netstat -ano ^| findstr \"\":8080\"\"''\\) DO taskkill /F /PID %a 2>nul\")"
+      "Bash(cmd //c \"FOR /F \"\"tokens=5\"\" %a IN \\(''netstat -ano ^| findstr \"\":8080\"\"''\\) DO taskkill /F /PID %a 2>nul\")",
+      "Bash(dir \"C:\\\\Users\\\\x_mn\\\\Desktop\\\\go_code\\\\bilibili\")",
+      "Bash(timeout 8 go run:*)"
     ]
   }
 }

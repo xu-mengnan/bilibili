@@ -8,8 +8,9 @@ import (
 
 // Config 应用配置
 type Config struct {
-	Server ServerConfig `json:"server"`
-	AI     AIConfig     `json:"ai"`
+	Server  ServerConfig  `json:"server"`
+	AI      AIConfig      `json:"ai"`
+	Storage StorageConfig `json:"storage"`
 }
 
 // ServerConfig 服务器配置
@@ -25,6 +26,13 @@ type AIConfig struct {
 	Model  string `json:"model"`
 }
 
+// StorageConfig 存储配置
+type StorageConfig struct {
+	DataDir      string `json:"data_dir"`      // 数据目录
+	AutoSave     bool   `json:"auto_save"`     // 自动保存
+	SaveInterval int    `json:"save_interval"` // 保存间隔（秒）
+}
+
 // Load 从文件加载配置
 func Load(path string) (*Config, error) {
 	// 设置默认配置
@@ -37,6 +45,11 @@ func Load(path string) (*Config, error) {
 			APIURL: "https://open.bigmodel.cn/api/paas/v4/chat/completions",
 			APIKey: "",
 			Model:  "glm-4.7",
+		},
+		Storage: StorageConfig{
+			DataDir:      "./data",
+			AutoSave:     true,
+			SaveInterval: 30,
 		},
 	}
 

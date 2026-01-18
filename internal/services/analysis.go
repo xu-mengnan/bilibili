@@ -95,7 +95,28 @@ var presetTemplates = []PromptTemplate{
 4. **用户反馈**：用户对视频内容的具体意见和建议
 5. **总结**：用3-5句话总结评论的总体情况
 
-请用Markdown格式输出，使用适当的标题和列表。`,
+## 输出格式要求
+请严格按照以下 Markdown 格式输出（注意每个标题和列表项前要有换行）：
+
+# 分析总结
+
+1. **整体情感倾向**
+（在这里描述整体情感倾向）
+
+2. **主要观点**
+**观点一**：详细描述
+**观点二**：详细描述
+
+3. **热门话题**
+- 话题一
+- 话题二
+
+4. **用户反馈**
+正面反馈：具体内容
+负面反馈：具体内容
+
+5. **总结**
+总结内容`,
 		Fields: []string{"comments", "video_title", "comment_count"},
 	},
 	{
@@ -116,7 +137,28 @@ var presetTemplates = []PromptTemplate{
 3. 分析情感分布的原因
 4. 给出可视化数据表格
 
-请用Markdown格式输出。`,
+## 输出格式要求
+请严格按照以下 Markdown 格式输出：
+
+# 情感分析报告
+
+1. **统计正面、负面、中性评论的比例**
+
+| 情感类别 | 评论数量 | 比例 |
+| --- | --- | --- |
+| 正面 | 数字 | 百分比 |
+| 负面 | 数字 | 百分比 |
+| 中性 | 数字 | 百分比 |
+
+2. **提取每类评论的典型代表**
+
+**正面评论**：
+- 评论内容
+
+**负面评论**：
+- 评论内容
+
+注意：表格的每一行都要单独一行，不要连在一起。`,
 		Fields: []string{"comments", "video_title"},
 	},
 	{
@@ -413,11 +455,13 @@ type ChunkCallback func(chunk string)
 // CallLLMStream 调用LLM API（流式输出，带回调）
 func (s *AnalysisService) CallLLMStream(callback ChunkCallback, prompt string) (string, error) {
 	if s.apiKey == "" {
-		// 模拟响应也使用流式输出
+		// 模拟响应也使用流式输出，每次发送累积的完整内容
 		mockResponse := s.getMockResponse(prompt)
 		chunks := splitIntoChunks(mockResponse, 20) // 每20个字符为一个chunk
+		var accumulated strings.Builder
 		for _, chunk := range chunks {
-			callback(chunk)
+			accumulated.WriteString(chunk)
+			callback(accumulated.String()) // 发送累积的完整内容
 		}
 		return mockResponse, nil
 	}
@@ -523,7 +567,8 @@ func (s *AnalysisService) CallLLMStream(callback ChunkCallback, prompt string) (
 				fmt.Printf("[LLM] 首个 chunk 延迟: %v\n", firstChunkTime.Sub(respRecvTime))
 			}
 			fullContent.WriteString(chunk)
-			callback(chunk) // 立即发送chunk到前端
+			// 发送累积的完整内容到前端
+			callback(fullContent.String())
 		}
 	}
 

@@ -10,6 +10,7 @@ import (
 	"bilibili/internal/config"
 	"bilibili/internal/handlers"
 	"bilibili/internal/services"
+	"bilibili/pkg/storage"
 	"bilibili/pkg/utils"
 )
 
@@ -25,7 +26,10 @@ func SetupRoutes() *gin.Engine {
 	}
 
 	// 初始化服务
-	commentService := services.NewCommentService()
+	// 初始化存储层
+	taskStorage := storage.NewJSONStorage(cfg.Storage.DataDir)
+
+	commentService := services.NewCommentService(taskStorage)
 	videoService := services.NewVideoService()
 	exportService := services.NewExportService("./exports")
 	analysisService := services.NewAnalysisService(

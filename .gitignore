@@ -18,6 +18,9 @@ nul
 coverage.*
 *.coverprofile
 profile.cov
+data/
+data/tasks/
+data/tasks/.backup/
 
 # Dependency directories (remove the comment below to include it)
 # vendor/

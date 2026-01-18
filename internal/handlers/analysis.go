@@ -1,6 +1,7 @@
 package handlers
 
 import (
+	"encoding/json"
 	"fmt"
 	"io"
 	"net/http"
@@ -330,8 +331,9 @@ func (h *AnalysisHandlers) AnalyzeStreamHandler(c *gin.Context) {
 				flusher.Flush()
 				return false
 			}
-			// 立即发送内容片段
-			fmt.Fprintf(w, "event: content\ndata: %s\n\n", chunk)
+			// 将内容进行 JSON 编码，避免换行符等特殊字符破坏 SSE 格式
+			jsonData, _ := json.Marshal(chunk)
+			fmt.Fprintf(w, "event: content\ndata: %s\n\n", string(jsonData))
 			flusher.Flush()
 			return true
 		case err := <-errorChan:

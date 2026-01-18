@@ -7,5 +7,10 @@
     "api_url": "https://open.bigmodel.cn/api/paas/v4/chat/completions",
     "api_key": "80946b83af82446b87acf3c22aba4952.7czYbaYL53QZ7FlV",
     "model": "glm-4-flash"
+  },
+  "storage": {
+    "data_dir": "./data",
+    "auto_save": true,
+    "save_interval": 30
   }
 }

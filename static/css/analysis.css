@@ -210,9 +210,15 @@
 
 .result-content.markdown-body {
     font-size: var(--font-size-base);
+    /* 确保 markdown 内容区域正常换行 */
+    word-wrap: break-word;
+    overflow-wrap: break-word;
 }
 
 /* Markdown 内容样式 */
+.result-content.markdown-body > * {
+    max-width: 100%;
+}
 .result-content.markdown-body h1,
 .result-content.markdown-body h2,
 .result-content.markdown-body h3,
@@ -244,7 +250,18 @@
 }
 
 .result-content.markdown-body p {
-    margin-bottom: var(--space-md);
+    margin-bottom: var(--space-lg);
+    margin-top: 0;
+    /* 确保长文本正常换行 */
+    word-wrap: break-word;
+    overflow-wrap: break-word;
+    /* 确保段落内的换行正确显示 */
+    line-height: 1.8;
+}
+
+/* 处理 markdown-it 生成的换行 */
+.result-content.markdown-body p + p {
+    margin-top: var(--space-md);
 }
 
 .result-content.markdown-body ul,
@@ -254,7 +271,8 @@
 }
 
 .result-content.markdown-body li {
-    margin-bottom: var(--space-xs);
+    margin-bottom: var(--space-sm);
+    line-height: 1.7;
 }
 
 .result-content.markdown-body code {
@@ -345,40 +363,84 @@
     border-top: 1px solid var(--border-color-light);
 }
 
-/* 复制按钮 - 紫色风格 */
-.result-actions .copy-btn {
-    background: linear-gradient(135deg, var(--primary-color) 0%, var(--primary-hover) 100%);
-    color: white;
+/* 结果按钮统一样式 */
+.result-actions .btn {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    gap: var(--space-sm);
+    padding: var(--space-sm) var(--space-lg);
     border: none;
-    box-shadow: 0 2px 8px rgba(124, 58, 237, 0.25);
+    border-radius: var(--radius-lg);
+    font-size: var(--font-size-sm);
+    font-weight: 600;
+    cursor: pointer;
     transition: all var(--transition-base);
+    white-space: nowrap;
+    min-width: 120px;
+    position: relative;
+    overflow: hidden;
+}
+
+/* 按钮悬停效果 */
+.result-actions .btn:hover {
+    transform: translateY(-2px);
+}
+
+.result-actions .btn:active {
+    transform: translateY(0);
+}
+
+/* 复制按钮 - 紫色渐变风格 */
+.result-actions .copy-btn {
+    background: linear-gradient(135deg, var(--primary-color) 0%, #8B5CF6 50%, var(--primary-hover) 100%);
+    color: white;
+    box-shadow: 0 4px 15px rgba(124, 58, 237, 0.3);
+}
+
+.result-actions .copy-btn::before {
+    content: '';
+    position: absolute;
+    top: 0;
+    left: -100%;
+    width: 100%;
+    height: 100%;
+    background: linear-gradient(90deg, transparent, rgba(255, 255, 255, 0.2), transparent);
+    transition: left 0.5s ease;
+}
+
+.result-actions .copy-btn:hover::before {
+    left: 100%;
 }
 
 .result-actions .copy-btn:hover {
-    box-shadow: 0 4px 12px rgba(124, 58, 237, 0.35);
-    transform: translateY(-1px);
+    box-shadow: 0 6px 20px rgba(124, 58, 237, 0.4);
 }
 
-.result-actions .copy-btn:active {
-    transform: translateY(0);
-}
-
-/* 下载按钮 - 蓝色风格 */
+/* 下载按钮 - 蓝色渐变风格 */
 .result-actions .download-btn {
-    background: linear-gradient(135deg, var(--info-color) 0%, #2563EB 100%);
+    background: linear-gradient(135deg, var(--info-color) 0%, #60A5FA 50%, #2563EB 100%);
     color: white;
-    border: none;
-    box-shadow: 0 2px 8px rgba(59, 130, 246, 0.25);
-    transition: all var(--transition-base);
+    box-shadow: 0 4px 15px rgba(59, 130, 246, 0.3);
+}
+
+.result-actions .download-btn::before {
+    content: '';
+    position: absolute;
+    top: 0;
+    left: -100%;
+    width: 100%;
+    height: 100%;
+    background: linear-gradient(90deg, transparent, rgba(255, 255, 255, 0.2), transparent);
+    transition: left 0.5s ease;
+}
+
+.result-actions .download-btn:hover::before {
+    left: 100%;
 }
 
 .result-actions .download-btn:hover {
-    box-shadow: 0 4px 12px rgba(59, 130, 246, 0.35);
-    transform: translateY(-1px);
-}
-
-.result-actions .download-btn:active {
-    transform: translateY(0);
+    box-shadow: 0 6px 20px rgba(59, 130, 246, 0.4);
 }
 
 /* 模态框样式 */
