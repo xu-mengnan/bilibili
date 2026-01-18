@@ -46,6 +46,7 @@ func SetupRoutes() *gin.Engine {
 	// 静态文件服务
 	r.Static("/static", "./static")
 	r.StaticFile("/", "./static/index.html")
+	r.StaticFile("/tasks", "./static/tasks.html")
 	r.StaticFile("/analysis", "./static/analysis.html")
 
 	// 原有路由
@@ -88,6 +89,7 @@ func SetupRoutes() *gin.Engine {
 		apiGroup.GET("/comments/result/:task_id", commentHandlers.GetResultHandler)
 		apiGroup.POST("/comments/export", commentHandlers.ExportCommentsHandler)
 		apiGroup.GET("/comments/stats/:task_id", commentHandlers.GetCommentsStatsHandler)
+		apiGroup.GET("/tasks/all", commentHandlers.GetAllTasksHandler) // 获取所有任务
 
 		// 下载文件
 		apiGroup.GET("/download/:file_id", commentHandlers.DownloadFileHandler)

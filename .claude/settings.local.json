@@ -22,7 +22,9 @@
       "Bash(done)",
       "Bash(cmd //c \"FOR /F \"\"tokens=5\"\" %a IN \\(''netstat -ano ^| findstr \"\":8080\"\"''\\) DO taskkill /F /PID %a 2>nul\")",
       "Bash(dir \"C:\\\\Users\\\\x_mn\\\\Desktop\\\\go_code\\\\bilibili\")",
-      "Bash(timeout 8 go run:*)"
+      "Bash(timeout 8 go run:*)",
+      "Bash(tree:*)",
+      "Bash(dir:*)"
     ]
   }
 }

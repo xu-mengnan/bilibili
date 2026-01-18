@@ -137,7 +137,7 @@ func (cs *CommentService) GetTaskProgress(taskID string) (*ScrapeTask, error) {
 	return task, nil
 }
 
-// GetAllTasks 获取所有任务
+// GetAllTasks 获取所有任务（按开始时间降序排序，最新的在前）
 func (cs *CommentService) GetAllTasks() []*ScrapeTask {
 	cs.mu.RLock()
 	defer cs.mu.RUnlock()
@@ -146,6 +146,12 @@ func (cs *CommentService) GetAllTasks() []*ScrapeTask {
 	for _, task := range cs.tasks {
 		tasks = append(tasks, task)
 	}
+
+	// 按开始时间降序排序（最新的在前）
+	sort.Slice(tasks, func(i, j int) bool {
+		return tasks[i].StartTime.After(tasks[j].StartTime)
+	})
+
 	return tasks
 }
 
@@ -445,7 +451,8 @@ func (cs *CommentService) loadTasksFromStorage() {
 			Status:     meta.Status,
 			Comments:   nil, // 懒加载
 			Progress: TaskProgress{
-				PageLimit: 2, // 默认值
+				TotalComments: meta.CommentCount, // 使用索引中的评论数
+				PageLimit:     2,                 // 默认值
 			},
 			StartTime: meta.StartTime,
 			EndTime:   meta.EndTime,
@@ -513,12 +520,19 @@ func (cs *CommentService) updateIndex() error {
 	// 构建索引
 	var metas []storage.TaskMeta
 	for _, task := range cs.tasks {
+		// 使用 Progress.TotalComments 而不是 len(task.Comments)
+		// 因为 Comments 可能未加载（懒加载）
+		commentCount := task.Progress.TotalComments
+		if commentCount == 0 && len(task.Comments) > 0 {
+			commentCount = len(task.Comments)
+		}
+
 		meta := storage.TaskMeta{
 			TaskID:       task.TaskID,
 			VideoID:      task.VideoID,
 			VideoTitle:   task.VideoTitle,
 			Status:       task.Status,
-			CommentCount: len(task.Comments),
+			CommentCount: commentCount,
 			StartTime:    task.StartTime,
 			EndTime:      task.EndTime,
 			DataFile:     task.TaskID + ".json",
@@ -543,6 +557,8 @@ func (cs *CommentService) loadTaskComments(task *ScrapeTask) error {
 
 	// 转换评论数据
 	task.Comments = cs.convertFromStorageFormat(taskData.Comments)
+	// 更新进度中的评论总数
+	task.Progress.TotalComments = len(task.Comments)
 	return nil
 }
 

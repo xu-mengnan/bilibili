@@ -102,6 +102,38 @@ const API = {
     },
 
     /**
+     * 获取所有任务
+     * @returns {Promise<Array>} 任务列表
+     */
+    async getAllTasks() {
+        const response = await fetch('/api/tasks/all');
+
+        if (!response.ok) {
+            const error = await response.json();
+            throw new Error(error.error || '获取任务列表失败');
+        }
+
+        const data = await response.json();
+        return data.tasks;
+    },
+
+    /**
+     * 获取任务详情
+     * @param {string} taskId - 任务ID
+     * @returns {Promise<Object>} 任务详情
+     */
+    async getTaskProgress(taskId) {
+        const response = await fetch(`/api/comments/progress/${taskId}`);
+
+        if (!response.ok) {
+            const error = await response.json();
+            throw new Error(error.error || '获取任务详情失败');
+        }
+
+        return await response.json();
+    },
+
+    /**
      * 获取视频信息
      * @param {string} videoInput - 视频ID或URL
      * @returns {Promise<Object>} 视频信息

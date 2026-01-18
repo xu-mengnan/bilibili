@@ -1,0 +1,150 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>任务管理 - Bilibili Tool</title>
+    <link rel="stylesheet" href="/static/css/style.css?v=4">
+    <link rel="stylesheet" href="/static/css/tasks.css?v=3">
+</head>
+<body>
+    <!-- 侧边栏 -->
+    <aside class="sidebar">
+        <div class="sidebar-header">
+            <div class="sidebar-logo">
+                <div class="sidebar-logo-icon">B</div>
+                <span>Bilibili Tool</span>
+            </div>
+        </div>
+
+        <nav class="sidebar-nav">
+            <div class="nav-group">
+                <div class="nav-group-title">功能</div>
+                <a href="/" class="nav-item">
+                    <span class="nav-item-icon">
+                        <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                            <path d="M12 2L2 7l10 5 10-5-10-5zM2 17l10 5 10-5M2 12l10 5 10-5"/>
+                        </svg>
+                    </span>
+                    <span>评论爬取</span>
+                </a>
+                <a href="/tasks" class="nav-item active">
+                    <span class="nav-item-icon">
+                        <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                            <rect x="3" y="3" width="7" height="7"/>
+                            <rect x="14" y="3" width="7" height="7"/>
+                            <rect x="14" y="14" width="7" height="7"/>
+                            <rect x="3" y="14" width="7" height="7"/>
+                        </svg>
+                    </span>
+                    <span>任务管理</span>
+                </a>
+                <a href="/analysis" class="nav-item">
+                    <span class="nav-item-icon">
+                        <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                            <path d="M21 16V8a2 2 0 0 0-1-1.73l-7-4a2 2 0 0 0-2 0l-7 4A2 2 0 0 0 3 8v8a2 2 0 0 0 1 1.73l7 4a2 2 0 0 0 2 0l7-4A2 2 0 0 0 21 16z"/>
+                            <polyline points="3.27 6.96 12 12.01 20.73 6.96"/>
+                            <line x1="12" y1="22.08" x2="12" y2="12"/>
+                        </svg>
+                    </span>
+                    <span>AI 分析</span>
+                </a>
+            </div>
+        </nav>
+
+        <div class="sidebar-footer">
+            <div style="font-size: 12px; color: var(--gray-400);">
+                仅用于学习研究
+            </div>
+        </div>
+    </aside>
+
+    <!-- 主内容区 -->
+    <div class="main-wrapper">
+        <!-- 顶部 Header -->
+        <header class="header">
+            <div class="header-left">
+                <h1 class="header-title">任务管理</h1>
+            </div>
+            <div class="header-right">
+                <button id="refresh-btn" class="btn btn-secondary btn-sm">
+                    <svg xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" style="margin-right: 4px;">
+                        <path d="M21.5 2v6h-6M2.5 22v-6h6M2 11.5a10 10 0 0 1 18.8-4.3M22 12.5a10 10 0 0 1-18.8 4.2"/>
+                    </svg>
+                    刷新
+                </button>
+            </div>
+        </header>
+
+        <!-- 内容区域 -->
+        <main class="content">
+            <div class="container">
+                <!-- 统计卡片 -->
+                <div class="stats-grid" style="margin-bottom: var(--space-2xl);">
+                    <div class="stat-card">
+                        <div class="stat-label">总任务数</div>
+                        <div class="stat-value" id="stat-total">0</div>
+                    </div>
+                    <div class="stat-card">
+                        <div class="stat-label">运行中</div>
+                        <div class="stat-value" style="color: var(--warning-color);" id="stat-running">0</div>
+                    </div>
+                    <div class="stat-card">
+                        <div class="stat-label">已完成</div>
+                        <div class="stat-value" style="color: var(--success-color);" id="stat-completed">0</div>
+                    </div>
+                    <div class="stat-card">
+                        <div class="stat-label">失败</div>
+                        <div class="stat-value" style="color: var(--error-color);" id="stat-failed">0</div>
+                    </div>
+                </div>
+
+                <!-- 任务列表 -->
+                <div class="card">
+                    <div class="card-header" style="display: flex; justify-content: space-between; align-items: center;">
+                        <h2 class="card-title">任务列表</h2>
+                        <div style="display: flex; gap: var(--space-sm);">
+                            <select id="status-filter" class="form-select" style="width: 120px;">
+                                <option value="">全部状态</option>
+                                <option value="running">运行中</option>
+                                <option value="completed">已完成</option>
+                                <option value="failed">失败</option>
+                            </select>
+                        </div>
+                    </div>
+                    <div class="card-body" style="padding: 0;">
+                        <div id="tasks-list" class="tasks-list">
+                            <p class="loading" style="color: var(--gray-400); text-align: center; padding: var(--space-xl);">
+                                加载中...
+                            </p>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </main>
+    </div>
+
+    <!-- 任务详情模态框 -->
+    <div id="task-detail-modal" class="modal" style="display: none;">
+        <div class="modal-content task-modal">
+            <div class="modal-header">
+                <h3 style="margin: 0;">任务详情</h3>
+                <button class="close-btn" type="button">
+                    <svg xmlns="http://www.w3.org/2000/svg" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                        <line x1="18" y1="6" x2="6" y2="18"/>
+                        <line x1="6" y1="6" x2="18" y2="18"/>
+                    </svg>
+                </button>
+            </div>
+            <div class="modal-body">
+                <div id="task-detail-content">
+                    <!-- 动态填充 -->
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <script src="/static/js/api.js?v=3"></script>
+    <script src="/static/js/tasks.js?v=3"></script>
+</body>
+</html>

@@ -106,13 +106,16 @@ func (h *CommentHandlers) ScrapeCommentsHandler(c *gin.Context) {
 
 // ProgressResponse 进度响应
 type ProgressResponse struct {
-	TaskID         string                `json:"task_id"`
-	Status         string                `json:"status"`
-	Progress       services.TaskProgress `json:"progress"`
-	VideoTitle     string                `json:"video_title,omitempty"`
-	StartTime      string                `json:"start_time"`
-	ElapsedSeconds int64                 `json:"elapsed_seconds"`
-	Error          string                `json:"error,omitempty"`
+	TaskID         string                 `json:"task_id"`
+	Status         string                 `json:"status"`
+	Progress       services.TaskProgress  `json:"progress"`
+	VideoTitle     string                 `json:"video_title,omitempty"`
+	StartTime      string                 `json:"start_time"`
+	EndTime        string                 `json:"end_time,omitempty"`
+	ElapsedSeconds int64                  `json:"elapsed_seconds"`
+	Error          string                 `json:"error,omitempty"`
+	VideoID        string                 `json:"video_id,omitempty"`
+	Comments       []bilibili.CommentData `json:"comments,omitempty"` // 添加评论数据
 }
 
 // GetProgressHandler 获取任务进度
@@ -127,14 +130,23 @@ func (h *CommentHandlers) GetProgressHandler(c *gin.Context) {
 
 	elapsed := time.Since(task.StartTime).Seconds()
 
+	// 格式化结束时间
+	endTime := ""
+	if !task.EndTime.IsZero() {
+		endTime = task.EndTime.Format("2006-01-02 15:04:05")
+	}
+
 	c.JSON(http.StatusOK, ProgressResponse{
 		TaskID:         task.TaskID,
 		Status:         task.Status,
 		Progress:       task.Progress,
 		VideoTitle:     task.VideoTitle,
-		StartTime:      task.StartTime.Format(time.RFC3339),
+		StartTime:      task.StartTime.Format("2006-01-02 15:04:05"),
+		EndTime:        endTime,
 		ElapsedSeconds: int64(elapsed),
 		Error:          task.Error,
+		VideoID:        task.VideoID,
+		Comments:       task.Comments, // 包含评论数据
 	})
 }
 
@@ -344,4 +356,31 @@ func (h *CommentHandlers) GetCommentsStatsHandler(c *gin.Context) {
 	stats["by_date"] = dateMap
 
 	c.JSON(http.StatusOK, stats)
+}
+
+// GetAllTasksHandler 获取所有任务列表
+func (h *CommentHandlers) GetAllTasksHandler(c *gin.Context) {
+	tasks := h.commentService.GetAllTasks()
+
+	result := make([]gin.H, 0, len(tasks))
+	for _, task := range tasks {
+		// 使用 Progress.TotalComments 作为评论数
+		commentCount := task.Progress.TotalComments
+		if commentCount == 0 && len(task.Comments) > 0 {
+			commentCount = len(task.Comments)
+		}
+
+		result = append(result, gin.H{
+			"task_id":       task.TaskID,
+			"video_id":      task.VideoID,
+			"video_title":   task.VideoTitle,
+			"status":        task.Status,
+			"comment_count": commentCount,
+			"start_time":    task.StartTime.Format("2006-01-02 15:04:05"),
+			"end_time":      task.EndTime.Format("2006-01-02 15:04:05"),
+			"error":         task.Error,
+		})
+	}
+
+	c.JSON(http.StatusOK, gin.H{"tasks": result})
 }

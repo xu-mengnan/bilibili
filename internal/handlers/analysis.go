@@ -164,11 +164,18 @@ func (h *AnalysisHandlers) CompletedTasksHandler(c *gin.Context) {
 	completed := make([]gin.H, 0)
 	for _, task := range tasks {
 		if task.Status == "completed" {
+			// 使用 Progress.TotalComments 而不是 len(task.Comments)
+			// 因为评论数据可能未加载（懒加载）
+			commentCount := task.Progress.TotalComments
+			if commentCount == 0 && len(task.Comments) > 0 {
+				commentCount = len(task.Comments)
+			}
+
 			completed = append(completed, gin.H{
 				"task_id":       task.TaskID,
 				"video_id":      task.VideoID,
 				"video_title":   task.VideoTitle,
-				"comment_count": len(task.Comments),
+				"comment_count": commentCount,
 				"start_time":    task.StartTime.Format("2006-01-02 15:04:05"),
 			})
 		}
