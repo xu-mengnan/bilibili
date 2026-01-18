@@ -104,6 +104,18 @@ func (cs *CommentService) GetTaskProgress(taskID string) (*ScrapeTask, error) {
 	return task, nil
 }
 
+// GetAllTasks 获取所有任务
+func (cs *CommentService) GetAllTasks() []*ScrapeTask {
+	cs.mu.RLock()
+	defer cs.mu.RUnlock()
+
+	tasks := make([]*ScrapeTask, 0, len(cs.tasks))
+	for _, task := range cs.tasks {
+		tasks = append(tasks, task)
+	}
+	return tasks
+}
+
 // GetTaskResult 获取任务结果（带筛选排序）
 func (cs *CommentService) GetTaskResult(taskID, sortBy, keyword string, limit int) ([]bilibili.CommentData, int, error) {
 	cs.mu.RLock()

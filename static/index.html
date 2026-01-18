@@ -3,187 +3,288 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Bilibili评论爬取工具</title>
-    <link rel="stylesheet" href="/static/css/style.css">
+    <meta name="referrer" content="no-referrer">
+    <title>Bilibili 评论爬取工具</title>
+    <link rel="stylesheet" href="/static/css/style.css?v=7">
     <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.1/dist/chart.umd.min.js"></script>
 </head>
 <body>
-    <div class="container">
-        <!-- Header -->
-        <header>
-            <h1>Bilibili 评论爬取与可视化</h1>
-            <p>实时爬取B站视频评论，支持数据可视化和导出</p>
+    <!-- 侧边栏 -->
+    <aside class="sidebar">
+        <div class="sidebar-header">
+            <div class="sidebar-logo">
+                <div class="sidebar-logo-icon">B</div>
+                <span>Bilibili Tool</span>
+            </div>
+        </div>
+
+        <nav class="sidebar-nav">
+            <div class="nav-group">
+                <div class="nav-group-title">功能</div>
+                <a href="/" class="nav-item active">
+                    <span class="nav-item-icon">
+                        <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                            <path d="M12 2L2 7l10 5 10-5-10-5zM2 17l10 5 10-5M2 12l10 5 10-5"/>
+                        </svg>
+                    </span>
+                    <span>评论爬取</span>
+                </a>
+                <a href="/analysis" class="nav-item">
+                    <span class="nav-item-icon">
+                        <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                            <path d="M21 16V8a2 2 0 0 0-1-1.73l-7-4a2 2 0 0 0-2 0l-7 4A2 2 0 0 0 3 8v8a2 2 0 0 0 1 1.73l7 4a2 2 0 0 0 2 0l7-4A2 2 0 0 0 21 16z"/>
+                            <polyline points="3.27 6.96 12 12.01 20.73 6.96"/>
+                            <line x1="12" y1="22.08" x2="12" y2="12"/>
+                        </svg>
+                    </span>
+                    <span>AI 分析</span>
+                </a>
+            </div>
+        </nav>
+
+        <div class="sidebar-footer">
+            <div style="font-size: 12px; color: var(--gray-400);">
+                仅用于学习研究
+            </div>
+        </div>
+    </aside>
+
+    <!-- 主内容区 -->
+    <div class="main-wrapper">
+        <!-- 顶部 Header -->
+        <header class="header">
+            <div class="header-left">
+                <h1 class="header-title">评论爬取</h1>
+            </div>
+            <div class="header-right">
+                <span class="badge badge-gray">v1.3.0</span>
+            </div>
         </header>
 
-        <!-- Input Section -->
-        <section id="input-section" class="card">
-            <h2>1. 输入视频信息</h2>
-            <div class="form-group">
-                <label for="video-input">视频链接或BV号：</label>
-                <input type="text" id="video-input" placeholder="例如：BV1shyYBjE9H 或 https://www.bilibili.com/video/BV1shyYBjE9H">
-            </div>
+        <!-- 内容区域 -->
+        <main class="content">
+            <div class="container">
+                <!-- 视频信息输入卡片 -->
+                <div class="card" id="input-section">
+                    <div class="card-header">
+                        <h2 class="card-title">视频信息</h2>
+                        <p class="card-subtitle">输入 B 站视频链接或 BV 号开始爬取</p>
+                    </div>
+                    <div class="card-body">
+                        <form class="form" id="scrape-form">
+                            <div class="form-group">
+                                <label class="form-label" for="video-input">视频链接或BV号</label>
+                                <input
+                                    type="text"
+                                    id="video-input"
+                                    class="form-input"
+                                    value="BV1mMtTeZEPQ"
+                                    placeholder="例如：BV1shyYBjE9H 或 https://www.bilibili.com/video/BV1shyYBjE9H"
+                                >
+                            </div>
 
-            <div class="form-group">
-                <label>认证方式：</label>
-                <div class="radio-group">
-                    <label><input type="radio" name="auth-type" value="none" checked> 无认证（公开接口）</label>
-                    <label><input type="radio" name="auth-type" value="cookie"> Cookie认证</label>
-                    <label><input type="radio" name="auth-type" value="app"> APP认证</label>
-                </div>
-            </div>
+                            <div class="form-row">
+                                <div class="form-group">
+                                    <label class="form-label">认证方式</label>
+                                    <div class="radio-group">
+                                        <label class="radio-label">
+                                            <input type="radio" name="auth-type" value="none" checked>
+                                            <span>无认证</span>
+                                        </label>
+                                        <label class="radio-label">
+                                            <input type="radio" name="auth-type" value="cookie">
+                                            <span>Cookie</span>
+                                        </label>
+                                        <label class="radio-label">
+                                            <input type="radio" name="auth-type" value="app">
+                                            <span>APP认证</span>
+                                        </label>
+                                    </div>
+                                </div>
 
-            <div id="cookie-auth" class="auth-section" style="display: none;">
-                <div class="form-group">
-                    <label for="sessdata">SESSDATA Cookie：</label>
-                    <input type="text" id="sessdata" placeholder="输入SESSDATA值">
-                </div>
-            </div>
+                                <div class="form-group">
+                                    <label class="form-label">排序模式</label>
+                                    <div class="radio-group">
+                                        <label class="radio-label">
+                                            <input type="radio" name="sort-mode" value="time" checked>
+                                            <span>按时间</span>
+                                        </label>
+                                        <label class="radio-label">
+                                            <input type="radio" name="sort-mode" value="hot">
+                                            <span>按热度</span>
+                                        </label>
+                                    </div>
+                                </div>
+                            </div>
 
-            <div id="app-auth" class="auth-section" style="display: none;">
-                <div class="form-group">
-                    <label for="app-key">APP Key：</label>
-                    <input type="text" id="app-key" placeholder="输入APP Key">
-                </div>
-                <div class="form-group">
-                    <label for="app-secret">APP Secret：</label>
-                    <input type="text" id="app-secret" placeholder="输入APP Secret">
-                </div>
-            </div>
+                            <div id="cookie-auth-group" class="form-group" style="display: none;">
+                                <label class="form-label" for="sessdata">SESSDATA Cookie</label>
+                                <input type="text" id="sessdata" class="form-input" placeholder="输入SESSDATA值">
+                            </div>
 
-            <div class="form-group">
-                <label for="page-limit">最大爬取页数：</label>
-                <input type="number" id="page-limit" value="2" min="1" max="100">
-            </div>
+                            <div id="app-auth-group" class="form-group" style="display: none;">
+                                <div class="form-row">
+                                    <div class="form-group">
+                                        <label class="form-label" for="app-key">APP Key</label>
+                                        <input type="text" id="app-key" class="form-input" placeholder="输入APP Key">
+                                    </div>
+                                    <div class="form-group">
+                                        <label class="form-label" for="app-secret">APP Secret</label>
+                                        <input type="text" id="app-secret" class="form-input" placeholder="输入APP Secret">
+                                    </div>
+                                </div>
+                            </div>
 
-            <div class="form-group">
-                <label for="delay">请求间隔（毫秒）：</label>
-                <input type="number" id="delay" value="300" min="100" max="5000">
-            </div>
+                            <div class="form-row">
+                                <div class="form-group">
+                                    <label class="form-label" for="page-limit">最大爬取页数</label>
+                                    <input type="number" id="page-limit" class="form-input" value="2" min="1" max="100">
+                                    <span class="form-hint">建议不超过5页，每页约20条评论</span>
+                                </div>
 
-            <div class="form-group">
-                <label>排序模式：</label>
-                <div class="radio-group">
-                    <label><input type="radio" name="sort-mode" value="time" checked> 按时间排序（最新评论）</label>
-                    <label><input type="radio" name="sort-mode" value="hot"> 按热度排序（热门评论）</label>
-                </div>
-            </div>
+                                <div class="form-group">
+                                    <label class="form-label" for="delay">请求间隔 (毫秒)</label>
+                                    <input type="number" id="delay" class="form-input" value="300" min="100" max="5000">
+                                    <span class="form-hint">建议300-500ms，避免请求过快</span>
+                                </div>
+                            </div>
 
-            <div class="form-group">
-                <label>
-                    <input type="checkbox" id="include-replies" checked> 同时抓取子评论（每条评论取前3条回复）
-                </label>
-            </div>
+                            <div class="form-group">
+                                <label class="checkbox-label">
+                                    <input type="checkbox" id="include-replies" checked>
+                                    <span>同时抓取子评论（每条评论取前3条回复）</span>
+                                </label>
+                            </div>
 
-            <button id="start-btn" class="btn-primary">开始爬取</button>
-        </section>
+                            <button type="submit" class="btn btn-primary btn-lg" id="start-btn">
+                                <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                                    <polygon points="5 3 19 12 5 21 5 3"/>
+                                </svg>
+                                开始爬取
+                            </button>
+                        </form>
+                    </div>
+                </div>
 
-        <!-- Progress Section -->
-        <section id="progress-section" class="card" style="display: none;">
-            <h2>2. 爬取进度</h2>
-            <div id="video-info" class="video-info">
-                <p><strong>视频标题：</strong><span id="video-title">加载中...</span></p>
-            </div>
-            <div class="progress-container">
-                <div class="progress-bar">
-                    <div id="progress-fill" class="progress-fill"></div>
-                </div>
-                <p id="progress-text">准备中...</p>
-            </div>
-            <div class="stats-row">
-                <div class="stat-item">
-                    <span class="stat-label">当前页数：</span>
-                    <span id="current-page" class="stat-value">0</span>
-                </div>
-                <div class="stat-item">
-                    <span class="stat-label">评论总数：</span>
-                    <span id="total-comments" class="stat-value">0</span>
-                </div>
-                <div class="stat-item">
-                    <span class="stat-label">已用时间：</span>
-                    <span id="elapsed-time" class="stat-value">0s</span>
-                </div>
-            </div>
-            <button id="cancel-btn" class="btn-secondary" style="display: none;">取消爬取</button>
-        </section>
+                <!-- 进度卡片 -->
+                <div class="card" id="progress-section" style="display: none;">
+                    <div class="card-header">
+                        <h2 class="card-title">爬取进度</h2>
+                    </div>
+                    <div class="card-body">
+                        <div id="video-info" style="background: var(--gray-50); padding: var(--space-md); border-radius: var(--radius-md); margin-bottom: var(--space-lg);">
+                            <p style="margin: 0; color: var(--gray-700);"><strong>视频：</strong><span id="video-title">加载中...</span></p>
+                        </div>
 
-        <!-- Results Section -->
-        <section id="results-section" class="card" style="display: none;">
-            <h2>3. 爬取结果</h2>
+                        <div style="margin-bottom: var(--space-xl);">
+                            <div style="display: flex; justify-content: space-between; margin-bottom: var(--space-sm);">
+                                <span style="font-size: var(--font-size-sm); color: var(--gray-500);">进度</span>
+                                <span id="progress-text" style="font-size: var(--font-size-sm); font-weight: 500; color: var(--gray-700);">准备中...</span>
+                            </div>
+                            <div class="progress">
+                                <div id="progress-fill" class="progress-bar animated" style="width: 0%;"></div>
+                            </div>
+                        </div>
 
-            <!-- Filter & Sort Tools -->
-            <div class="tools-bar">
-                <div class="tool-group">
-                    <label for="sort-select">排序：</label>
-                    <select id="sort-select">
-                        <option value="time_desc">时间（新→旧）</option>
-                        <option value="time_asc">时间（旧→新）</option>
-                        <option value="like_desc">点赞（高→低）</option>
-                        <option value="like_asc">点赞（低→高）</option>
-                    </select>
+                        <div class="stats-grid">
+                            <div class="stat-card">
+                                <div class="stat-label">当前页数</div>
+                                <div class="stat-value" id="current-page">0</div>
+                            </div>
+                            <div class="stat-card">
+                                <div class="stat-label">评论总数</div>
+                                <div class="stat-value" id="total-comments">0</div>
+                            </div>
+                            <div class="stat-card">
+                                <div class="stat-label">已用时间</div>
+                                <div class="stat-value" id="elapsed-time" style="font-size: var(--font-size-2xl);">0s</div>
+                            </div>
+                        </div>
+
+                        <button id="cancel-btn" class="btn btn-secondary" style="display: none;">取消爬取</button>
+                    </div>
                 </div>
-                <div class="tool-group">
-                    <label for="keyword-input">关键词：</label>
-                    <input type="text" id="keyword-input" placeholder="搜索评论内容或用户名">
+
+                <!-- 结果卡片 -->
+                <div class="card" id="results-section" style="display: none;">
+                    <div class="card-header">
+                        <h2 class="card-title">爬取结果</h2>
+                        <p class="card-subtitle" id="result-summary">共获取 <strong>0</strong> 条评论</p>
+                    </div>
+                    <div class="card-body">
+                        <!-- 筛选工具栏 -->
+                        <div class="toolbar">
+                            <div class="toolbar-group">
+                                <label class="form-label" for="sort-select">排序</label>
+                                <select id="sort-select" class="form-select" style="width: 150px;">
+                                    <option value="time_desc">时间 ↓</option>
+                                    <option value="time_asc">时间 ↑</option>
+                                    <option value="like_desc">点赞 ↓</option>
+                                    <option value="like_asc">点赞 ↑</option>
+                                </select>
+                            </div>
+                            <div class="toolbar-group" style="flex: 1;">
+                                <input type="text" id="keyword-input" class="form-input" placeholder="搜索评论内容或用户名...">
+                            </div>
+                            <button id="filter-btn" class="btn btn-secondary">应用筛选</button>
+                        </div>
+
+                        <!-- 图表区域 -->
+                        <div style="display: grid; grid-template-columns: repeat(auto-fit, minmax(350px, 1fr)); gap: var(--space-lg); margin: var(--space-xl) 0;">
+                            <div style="background: var(--gray-50); padding: var(--space-lg); border-radius: var(--radius-lg);">
+                                <h3 style="font-size: var(--font-size-base); font-weight: 600; margin-bottom: var(--space-md); color: var(--gray-800);">评论时间分布</h3>
+                                <div style="height: 200px;">
+                                    <canvas id="time-chart"></canvas>
+                                </div>
+                            </div>
+                            <div style="background: var(--gray-50); padding: var(--space-lg); border-radius: var(--radius-lg);">
+                                <h3 style="font-size: var(--font-size-base); font-weight: 600; margin-bottom: var(--space-md); color: var(--gray-800);">点赞数分布</h3>
+                                <div style="height: 200px;">
+                                    <canvas id="likes-chart"></canvas>
+                                </div>
+                            </div>
+                        </div>
+
+                        <!-- 评论列表 -->
+                        <div class="comments-container" style="margin: var(--space-xl) 0;">
+                            <div id="comments-list"></div>
+                        </div>
+
+                        <!-- 导出区域 -->
+                        <div style="margin-top: var(--space-2xl); padding-top: var(--space-xl); border-top: 1px solid var(--border-color-light);">
+                            <h3 style="font-size: var(--font-size-base); font-weight: 600; margin-bottom: var(--space-md);">导出数据</h3>
+                            <div class="toolbar">
+                                <select id="export-format" class="form-select" style="width: 120px;">
+                                    <option value="xlsx">Excel</option>
+                                    <option value="csv">CSV</option>
+                                </select>
+                                <input type="text" id="export-filename" class="form-input" placeholder="文件名（可选）" style="flex: 1;">
+                                <button id="export-btn" class="btn btn-primary">
+                                    <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                                        <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/>
+                                        <polyline points="7 10 12 15 17 10"/>
+                                        <line x1="12" y1="15" x2="12" y2="3"/>
+                                    </svg>
+                                    导出
+                                </button>
+                            </div>
+                            <div id="download-link" style="display: none; margin-top: var(--space-md); padding: var(--space-md); background: var(--success-light); border-radius: var(--radius-md); border: 1px solid rgba(16, 185, 129, 0.2);">
+                                <p style="margin: 0; color: #065F46; font-size: var(--font-size-sm);">
+                                    ✓ 导出成功！<a id="download-url" href="#" download style="color: #047857; font-weight: 600; text-decoration: none; margin-left: var(--space-sm);">点击下载</a>
+                                </p>
+                            </div>
+                        </div>
+                    </div>
                 </div>
-                <button id="filter-btn" class="btn-secondary">应用筛选</button>
+
+                <!-- 错误消息 -->
+                <div id="error-message" class="error-message" style="display: none;"></div>
             </div>
-
-            <!-- Charts -->
-            <div class="charts-container">
-                <div class="chart-box">
-                    <h3>评论时间分布</h3>
-                    <canvas id="time-chart"></canvas>
-                </div>
-                <div class="chart-box">
-                    <h3>点赞数分布</h3>
-                    <canvas id="likes-chart"></canvas>
-                </div>
-            </div>
-
-            <!-- Comments Table -->
-            <div class="table-container">
-                <h3>评论列表（<span id="comment-count">0</span>条）</h3>
-                <table id="comments-table">
-                    <thead>
-                        <tr>
-                            <th>用户</th>
-                            <th>评论内容</th>
-                            <th>点赞数</th>
-                            <th>时间</th>
-                        </tr>
-                    </thead>
-                    <tbody id="comments-tbody">
-                    </tbody>
-                </table>
-            </div>
-
-            <!-- Export Section -->
-            <div class="export-section">
-                <h3>导出数据</h3>
-                <div class="export-controls">
-                    <select id="export-format">
-                        <option value="xlsx">Excel (.xlsx)</option>
-                        <option value="csv">CSV (.csv)</option>
-                    </select>
-                    <input type="text" id="export-filename" placeholder="文件名（可选）">
-                    <button id="export-btn" class="btn-primary">导出</button>
-                </div>
-                <div id="download-link" style="display: none;">
-                    <p>导出成功！<a id="download-url" href="#" download>点击下载</a></p>
-                </div>
-            </div>
-        </section>
-
-        <!-- Error Section -->
-        <div id="error-message" class="error-message" style="display: none;"></div>
+        </main>
     </div>
 
-    <footer>
-        <p>Bilibili 评论爬取工具 | 仅用于学习研究</p>
-    </footer>
-
-    <script src="/static/js/api.js"></script>
-    <script src="/static/js/charts.js"></script>
-    <script src="/static/js/app.js"></script>
+    <script src="/static/js/api.js?v=4"></script>
+    <script src="/static/js/charts.js?v=4"></script>
+    <script src="/static/js/app.js?v=8"></script>
 </body>
 </html>

@@ -3,6 +3,7 @@ package handlers
 import (
 	"net/http"
 	"strconv"
+	"strings"
 	"time"
 
 	"bilibili/internal/services"
@@ -158,10 +159,16 @@ type ResultResponse struct {
 
 // convertToCommentItem 转换为CommentItem（包含子评论）
 func convertToCommentItem(comment bilibili.CommentData) CommentItem {
+	// 处理头像URL：B站返回的是 protocol-relative URL (//开头)
+	avatar := comment.Member.Avatar
+	if strings.HasPrefix(avatar, "//") {
+		avatar = "https:" + avatar
+	}
+
 	item := CommentItem{
 		RPID:    comment.RPID,
 		Author:  comment.Member.Uname,
-		Avatar:  comment.Member.Avatar,
+		Avatar:  avatar,
 		Content: comment.Content.Message,
 		Likes:   comment.Like,
 		Time:    time.Unix(int64(comment.Ctime), 0).Format("2006-01-02 15:04:05"),

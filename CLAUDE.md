@@ -31,6 +31,7 @@ go test -v ./pkg/bilibili -run TestFunctionName
 2. 基于 Gin 的 Web 服务器（提供 RESTful API 和可视化界面）
 3. 异步任务管理系统（评论爬取任务）
 4. 数据导出功能（Excel/CSV）
+5. AI 智能分析功能（大模型评论分析）
 
 ### 核心组件
 
@@ -65,6 +66,14 @@ go test -v ./pkg/bilibili -run TestFunctionName
 - 支持 Excel 和 CSV 格式
 - 子评论层级展示（"主评论" / "└ 回复 (L1)"）
 - 自动清理 2 小时前的导出文件
+
+**AI 分析系统** (`internal/services/analysis.go`, `internal/handlers/analysis.go`)
+- `AnalysisService` AI 分析服务
+- 支持 OpenAI 兼容的大模型 API
+- 5 种预设 Prompt 模板（评论总结、情感分析、关键词提取、问答分析、自定义）
+- 支持配置文件 `configs/config.json` 配置 API
+- 未配置密钥时返回模拟响应（便于开发调试）
+- 分析页面 `/analysis` 支持任务选择、模板选择、Prompt 预览、结果展示
 
 ### 关键模式和约定
 
@@ -104,6 +113,16 @@ bilibili.GetComments(oid, 1, 20, 0,
 - Main 端点：`mode=2` (时间) / `mode=3` (热度)
 - Fallback 端点：`sort=2` (时间) / `sort=1` (热度)
 
+**AI 分析配置文件** (`configs/config.json`)
+- `ai.api_url` - 大模型 API 地址，默认：智谱AI `https://open.bigmodel.cn/api/paas/v4/chat/completions`
+- `ai.api_key` - API 密钥，留空则使用模拟响应
+- `ai.model` - 模型名称，默认：`glm-4.7`
+
+**Prompt 模板变量**
+- `{{comments}}` - 评论数据列表
+- `{{video_title}}` - 视频标题
+- `{{comment_count}}` - 评论数量
+
 ### 数据流
 
 **评论爬取流程**：
@@ -126,6 +145,17 @@ bilibili.GetComments(oid, 1, 20, 0,
 - 点击主评论前的箭头图标切换展开/折叠
 - 箭头有 0.3s 旋转动画
 - 子评论有浅灰背景和左侧紫色边框
+
+**AI 分析流程**：
+1. 用户在分析页面 `/analysis` 选择已完成的任务
+2. 选择分析模板或自定义 Prompt
+3. 可选择限制分析的评论数量
+4. 点击"开始分析"发送请求到后端
+5. `AnalysisService.AnalyzeComments` 格式化评论数据
+6. 渲染 Prompt 模板（替换变量）
+7. 调用 LLM API 或返回模拟响应
+8. 前端使用 marked.js 渲染 Markdown 结果
+9. 用户可复制结果或下载为 Markdown 文件
 
 ### 重要约定
 
@@ -164,3 +194,4 @@ bilibili.GetComments(oid, 1, 20, 0,
 4. **子评论层级展示**：前端折叠/展开交互，Excel 层级标识
 5. **自动资源清理**：定期清理旧任务和导出文件
 6. **API 容错**：主端点失败自动切换备用端点
+7. **AI 智能分析**：集成大模型能力，支持多种 Prompt 模板和自定义分析

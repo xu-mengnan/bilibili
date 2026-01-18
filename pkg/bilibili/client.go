@@ -4,6 +4,7 @@ import (
 	"fmt"
 	"io"
 	"net/http"
+	"net/url"
 	"time"
 )
 
@@ -17,9 +18,17 @@ type BilibiliClient struct {
 
 // NewBilibiliClient 创建新的Bilibili客户端
 func NewBilibiliClient() *BilibiliClient {
+	// 创建自定义 Transport，禁用代理
+	transport := &http.Transport{
+		Proxy: func(*http.Request) (*url.URL, error) {
+			return nil, nil // 禁用代理
+		},
+	}
+
 	return &BilibiliClient{
 		client: &http.Client{
-			Timeout: 10 * time.Second,
+			Timeout:   10 * time.Second,
+			Transport: transport,
 		},
 	}
 }

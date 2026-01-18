@@ -45,6 +45,7 @@ go run ./cmd/app
 
 ### Web界面
 - `GET /` - Web可视化界面首页
+- `GET /analysis` - AI 评论分析页面
 - `GET /static/*` - 静态资源（JS、CSS、图片）
 
 ### 评论爬取API
@@ -54,6 +55,13 @@ go run ./cmd/app
 - `GET /api/comments/stats/:task_id` - 获取评论统计
 - `POST /api/comments/export` - 导出评论数据
 - `GET /api/download/:file_id` - 下载导出文件
+
+### AI分析API
+- `GET /api/analysis/templates` - 获取预设Prompt模板
+- `POST /api/analysis/analyze` - 执行评论分析
+- `GET /api/analysis/tasks/completed` - 获取所有已完成任务
+- `GET /api/analysis/tasks/:task_id` - 获取任务评论摘要
+- `POST /api/analysis/preview` - 预览Prompt渲染结果
 
 ### 其他API
 - `GET /hello` - 简单的问候接口
@@ -89,6 +97,31 @@ go run ./cmd/app
 - 支持数据筛选和排序
 - 支持子评论抓取（点击展开/折叠）
 - 导出Excel/CSV格式
+
+#### 5. AI 智能分析
+- **默认使用智谱AI (GLM-4.7)** 进行评论分析
+- 5种预设Prompt模板（评论总结、情感分析、关键词提取、问答分析、自定义）
+- Prompt预览功能
+- Markdown格式结果展示
+- 支持复制和下载分析结果
+
+**配置智谱AI：**
+编辑 `configs/config.json` 文件：
+```json
+{
+  "ai": {
+    "api_url": "https://open.bigmodel.cn/api/paas/v4/chat/completions",
+    "api_key": "your-zhipu-api-key",
+    "model": "glm-4.7"
+  }
+}
+```
+
+获取 API Key：
+1. 访问 [智谱AI开放平台](https://open.bigmodel.cn/)
+2. 注册并登录
+3. 在 API Keys 页面创建密钥
+4. 将密钥填入配置文件的 `api_key` 字段
 
 ### 示例
 
@@ -220,6 +253,7 @@ curl -X POST http://localhost:8080/api/comments/scrape \
 
 ### 变更日志
 - [变更日志目录](changelogs/README.md) - 所有版本的更新记录
+- [v1.3.0 - AI 评论分析功能](changelogs/2026-01-17-ai-analysis-feature.md)
 - [v1.2.0 - 子评论抓取功能](changelogs/2026-01-12-sub-comments-feature.md)
 - [v1.1.0 - 评论排序模式功能](changelogs/2026-01-11-comment-sort-mode.md)
 

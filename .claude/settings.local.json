@@ -10,7 +10,17 @@
       "Bash(if not exist exports mkdir exports)",
       "Bash(powershell -Command:*)",
       "Bash(go run:*)",
-      "Bash(timeout /t 3)"
+      "Bash(timeout /t 3)",
+      "Bash(curl:*)",
+      "Bash(taskkill:*)",
+      "Bash(netstat:*)",
+      "Bash(echo:*)",
+      "Bash(xargs kill:*)",
+      "Bash(findstr:*)",
+      "Bash(while read pid)",
+      "Bash(do taskkill //F //PID $pid)",
+      "Bash(done)",
+      "Bash(cmd //c \"FOR /F \"\"tokens=5\"\" %a IN \\(''netstat -ano ^| findstr \"\":8080\"\"''\\) DO taskkill /F /PID %a 2>nul\")"
     ]
   }
 }

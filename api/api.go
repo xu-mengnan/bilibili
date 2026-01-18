@@ -1,11 +1,13 @@
 package api
 
 import (
+	"log"
 	"net/http"
 	"strconv"
 
 	"github.com/gin-gonic/gin"
 
+	"bilibili/internal/config"
 	"bilibili/internal/handlers"
 	"bilibili/internal/services"
 	"bilibili/pkg/utils"
@@ -15,18 +17,32 @@ import (
 func SetupRoutes() *gin.Engine {
 	r := gin.Default()
 
+	// 加载配置
+	cfg, err := config.LoadDefault()
+	if err != nil {
+		log.Printf("警告: 加载配置文件失败: %v，使用默认配置", err)
+		cfg, _ = config.LoadDefault()
+	}
+
 	// 初始化服务
 	commentService := services.NewCommentService()
 	videoService := services.NewVideoService()
 	exportService := services.NewExportService("./exports")
+	analysisService := services.NewAnalysisService(
+		cfg.AI.APIURL,
+		cfg.AI.APIKey,
+		cfg.AI.Model,
+	)
 
 	// 初始化处理器
 	commentHandlers := handlers.NewCommentHandlers(commentService, exportService)
 	videoHandlers := handlers.NewVideoHandlers(videoService)
+	analysisHandlers := handlers.NewAnalysisHandlers(commentService, analysisService)
 
 	// 静态文件服务
 	r.Static("/static", "./static")
 	r.StaticFile("/", "./static/index.html")
+	r.StaticFile("/analysis", "./static/analysis.html")
 
 	// 原有路由
 	r.GET("/hello", func(c *gin.Context) {
@@ -74,6 +90,14 @@ func SetupRoutes() *gin.Engine {
 
 		// 视频相关
 		apiGroup.POST("/videos/info", videoHandlers.GetVideoInfoHandler)
+
+		// AI分析相关
+		apiGroup.GET("/analysis/templates", analysisHandlers.GetTemplatesHandler)
+		apiGroup.POST("/analysis/analyze", analysisHandlers.AnalyzeHandler)
+		apiGroup.POST("/analysis/analyze-stream", analysisHandlers.AnalyzeStreamHandler)
+		apiGroup.GET("/analysis/tasks/completed", analysisHandlers.CompletedTasksHandler)
+		apiGroup.GET("/analysis/tasks/:task_id", analysisHandlers.GetCommentsForAnalysisHandler)
+		apiGroup.POST("/analysis/preview", analysisHandlers.PreviewPromptHandler)
 	}
 
 	return r

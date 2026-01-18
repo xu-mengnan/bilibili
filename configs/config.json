@@ -3,11 +3,9 @@
     "port": 8080,
     "host": "localhost"
   },
-  "database": {
-    "host": "localhost",
-    "port": 5432,
-    "user": "bilibili",
-    "password": "bilibili",
-    "dbname": "bilibili"
+  "ai": {
+    "api_url": "https://open.bigmodel.cn/api/paas/v4/chat/completions",
+    "api_key": "80946b83af82446b87acf3c22aba4952.7czYbaYL53QZ7FlV",
+    "model": "glm-4-flash"
   }
 }

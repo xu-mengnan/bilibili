@@ -1,0 +1,211 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>AI 评论分析 - Bilibili Tool</title>
+    <link rel="stylesheet" href="/static/css/style.css?v=4">
+    <link rel="stylesheet" href="/static/css/analysis.css?v=8">
+    <!-- marked.js - Markdown 解析库 (使用多个 CDN 作为备用) -->
+    <script src="https://cdn.jsdelivr.net/npm/marked@11.1.1/marked.min.js"
+            onerror="this.onerror=null; this.src='https://cdn.bootcdn.net/ajax/libs/marked/11.1.1/marked.min.js'"></script>
+    <script>
+        // 检查 marked 是否正确加载
+        if (typeof marked === 'undefined') {
+            console.error('marked.js 未能加载，Markdown 格式将无法正确渲染');
+        } else {
+            console.log('marked.js 已加载，版本:', marked?.version || 'unknown');
+            // 配置 marked.js 选项
+            marked.use({
+                breaks: true,  // 单个换行符转换为 <br>
+                gfm: true,     // 启用 GitHub Flavored Markdown
+            });
+        }
+    </script>
+</head>
+<body>
+    <!-- 侧边栏 -->
+    <aside class="sidebar">
+        <div class="sidebar-header">
+            <div class="sidebar-logo">
+                <div class="sidebar-logo-icon">B</div>
+                <span>Bilibili Tool</span>
+            </div>
+        </div>
+
+        <nav class="sidebar-nav">
+            <div class="nav-group">
+                <div class="nav-group-title">功能</div>
+                <a href="/" class="nav-item">
+                    <span class="nav-item-icon">
+                        <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                            <path d="M12 2L2 7l10 5 10-5-10-5zM2 17l10 5 10-5M2 12l10 5 10-5"/>
+                        </svg>
+                    </span>
+                    <span>评论爬取</span>
+                </a>
+                <a href="/analysis" class="nav-item active">
+                    <span class="nav-item-icon">
+                        <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                            <path d="M21 16V8a2 2 0 0 0-1-1.73l-7-4a2 2 0 0 0-2 0l-7 4A2 2 0 0 0 3 8v8a2 2 0 0 0 1 1.73l7 4a2 2 0 0 0 2 0l7-4A2 2 0 0 0 21 16z"/>
+                            <polyline points="3.27 6.96 12 12.01 20.73 6.96"/>
+                            <line x1="12" y1="22.08" x2="12" y2="12"/>
+                        </svg>
+                    </span>
+                    <span>AI 分析</span>
+                </a>
+            </div>
+        </nav>
+
+        <div class="sidebar-footer">
+            <div style="font-size: 12px; color: var(--gray-400);">
+                仅用于学习研究
+            </div>
+        </div>
+    </aside>
+
+    <!-- 主内容区 -->
+    <div class="main-wrapper">
+        <!-- 顶部 Header -->
+        <header class="header">
+            <div class="header-left">
+                <h1 class="header-title">AI 评论分析</h1>
+            </div>
+            <div class="header-right">
+                <span class="badge badge-primary">智谱AI GLM-4 Flash (闪速版)</span>
+            </div>
+        </header>
+
+        <!-- 内容区域 -->
+        <main class="content">
+            <div class="container">
+                <div class="analysis-grid" style="display: grid; grid-template-columns: 380px 1fr; gap: var(--space-2xl);">
+                    <!-- 左侧配置面板 -->
+                    <div>
+                        <!-- 选择任务 -->
+                        <div class="card">
+                            <div class="card-header">
+                                <h2 class="card-title">1. 选择任务</h2>
+                            </div>
+                            <div class="card-body" style="padding: 0;">
+                                <div style="padding: var(--space-md); border-bottom: 1px solid var(--border-color-light);">
+                                    <button id="refresh-tasks" class="btn btn-secondary btn-sm">
+                                        <svg xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" style="margin-right: var(--space-xs);">
+                                            <path d="M21.5 2v6h-6M2.5 22v-6h6M2 11.5a10 10 0 0 1 18.8-4.3M22 12.5a10 10 0 0 1-18.8 4.2"/>
+                                        </svg>
+                                        刷新任务列表
+                                    </button>
+                                </div>
+                                <div id="task-list" style="max-height: 320px; overflow-y: auto; padding: var(--space-md);">
+                                    <p class="loading" style="color: var(--gray-400); text-align: center; padding: var(--space-lg);">
+                                        加载中...
+                                    </p>
+                                </div>
+                            </div>
+                        </div>
+
+                        <!-- 选择分析模板 -->
+                        <div class="card">
+                            <div class="card-header">
+                                <h2 class="card-title">2. 选择模板</h2>
+                            </div>
+                            <div class="card-body" style="padding: 0;">
+                                <div id="template-list" style="max-height: 360px; overflow-y: auto; padding: var(--space-md);">
+                                    <p class="loading" style="color: var(--gray-400); text-align: center; padding: var(--space-lg);">
+                                        加载中...
+                                    </p>
+                                </div>
+                            </div>
+                        </div>
+
+                        <!-- 自定义 Prompt -->
+                        <div class="card" id="custom-prompt-section" style="display: none;">
+                            <div class="card-header">
+                                <h2 class="card-title">自定义 Prompt</h2>
+                            </div>
+                            <div class="card-body">
+                                <textarea id="custom-prompt" class="form-textarea" placeholder="输入自定义的分析Prompt..." rows="6"></textarea>
+                                <div style="margin-top: var(--space-sm); padding: var(--space-sm); background: var(--gray-50); border-radius: var(--radius-md);">
+                                    <small style="color: var(--primary-color);">可用变量: {{comments}}, {{video_title}}, {{comment_count}}</small>
+                                </div>
+                            </div>
+                        </div>
+
+                        <!-- 分析设置 -->
+                        <div class="card">
+                            <div class="card-header">
+                                <h2 class="card-title">3. 分析设置</h2>
+                            </div>
+                            <div class="card-body">
+                                <div class="form-group">
+                                    <label class="form-label" for="comment-limit">分析评论数量</label>
+                                    <input type="number" id="comment-limit" class="form-input" value="0" min="0" max="1000">
+                                    <span class="form-hint">0 表示分析全部评论，建议限制数量以提高响应速度</span>
+                                </div>
+                                <button id="analyze-btn" class="btn btn-primary btn-lg" style="width: 100%;" disabled>
+                                    <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                                        <path d="M21 16V8a2 2 0 0 0-1-1.73l-7-4a2 2 0 0 0-2 0l-7 4A2 2 0 0 0 3 8v8a2 2 0 0 0 1 1.73l7 4a2 2 0 0 0 2 0l7-4A2 2 0 0 0 21 16z"/>
+                                        <polyline points="3.27 6.96 12 12.01 20.73 6.96"/>
+                                        <line x1="12" y1="22.08" x2="12" y2="12"/>
+                                    </svg>
+                                    开始分析
+                                </button>
+                            </div>
+                        </div>
+                    </div>
+
+                    <!-- 右侧结果面板 -->
+                    <div>
+                        <div class="card" style="min-height: 700px;">
+                            <div class="card-header">
+                                <h2 class="card-title">4. 分析结果</h2>
+                                <p class="card-subtitle" id="result-status">请先选择任务和模板</p>
+                            </div>
+                            <div class="card-body" style="padding: 0;">
+                                <div id="result-container" style="min-height: 580px;">
+                                    <div class="empty-state">
+                                        <div class="empty-state-icon">
+                                            <svg xmlns="http://www.w3.org/2000/svg" width="40" height="40" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5">
+                                                <path d="M9.663 17h4.673M12 3v1m6.364 1.636l-.707.707M21 12h-1M4 12H3m3.343-5.657l-.707-.707m2.828 9.9a5 5 0 117.072 0l-.548.547A3.374 3.374 0 0014 18.469V19a2 2 0 11-4 0v-.531c0-.895-.356-1.754-.988-2.386l-.548-.547z"/>
+                                            </svg>
+                                        </div>
+                                        <div class="empty-state-title">暂无分析结果</div>
+                                        <div class="empty-state-description">请先选择已完成的任务，然后选择分析模板或自定义 Prompt</div>
+                                    </div>
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+
+                <!-- 错误消息 -->
+                <div id="error-message" class="error-message" style="display: none;"></div>
+            </div>
+        </main>
+    </div>
+
+    <!-- Prompt 预览模态框 -->
+    <div id="preview-modal" class="modal" style="display: none;">
+        <div class="modal-content" style="background: var(--bg-white);">
+            <div class="modal-header">
+                <h3 style="margin: 0;">Prompt 预览</h3>
+                <button class="close-btn" type="button">
+                    <svg xmlns="http://www.w3.org/2000/svg" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                        <line x1="18" y1="6" x2="6" y2="18"/>
+                        <line x1="6" y1="6" x2="18" y2="18"/>
+                    </svg>
+                </button>
+            </div>
+            <div class="modal-body">
+                <pre id="preview-content" style="background: var(--gray-50); border: 1px solid var(--border-color); color: var(--gray-700);"></pre>
+            </div>
+            <div class="modal-footer">
+                <button class="btn btn-secondary close-modal-btn">关闭</button>
+            </div>
+        </div>
+    </div>
+
+    <script src="/static/js/api.js?v=11"></script>
+    <script src="/static/js/analysis.js?v=11"></script>
+</body>
+</html>
