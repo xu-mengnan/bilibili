@@ -42,12 +42,19 @@ func SetupRoutes() *gin.Engine {
 	commentHandlers := handlers.NewCommentHandlers(commentService, exportService)
 	videoHandlers := handlers.NewVideoHandlers(videoService)
 	analysisHandlers := handlers.NewAnalysisHandlers(commentService, analysisService)
+	v2Handlers := handlers.NewV2Handlers(commentService, analysisService)
 
 	// 静态文件服务
 	r.Static("/static", "./static")
+	r.Static("/static-new", "./static-new")
 	r.StaticFile("/", "./static/index.html")
 	r.StaticFile("/tasks", "./static/tasks.html")
 	r.StaticFile("/analysis", "./static/analysis.html")
+
+	// 新设计页面（用于对比）
+	r.StaticFile("/index-new.html", "./static-new/index-new.html")
+	r.StaticFile("/tasks-new.html", "./static-new/tasks-new.html")
+	r.StaticFile("/analysis-new.html", "./static-new/analysis-new.html")
 
 	// 原有路由
 	r.GET("/hello", func(c *gin.Context) {
@@ -104,6 +111,21 @@ func SetupRoutes() *gin.Engine {
 		apiGroup.GET("/analysis/tasks/completed", analysisHandlers.CompletedTasksHandler)
 		apiGroup.GET("/analysis/tasks/:task_id", analysisHandlers.GetCommentsForAnalysisHandler)
 		apiGroup.POST("/analysis/preview", analysisHandlers.PreviewPromptHandler)
+	}
+
+	// V2 API - 为新版前端页面服务（更简洁的响应格式）
+	v2Group := r.Group("/api/v2")
+	{
+		// 任务相关
+		v2Group.GET("/tasks", v2Handlers.GetTasksHandler)
+		v2Group.GET("/tasks/:id", v2Handlers.GetTaskHandler)
+
+		// 模板相关
+		v2Group.GET("/templates", v2Handlers.GetTemplatesHandler)
+
+		// 分析相关
+		v2Group.POST("/analyze-stream", v2Handlers.AnalyzeStreamHandlerV2)
+		v2Group.POST("/preview", v2Handlers.PreviewPromptHandlerV2)
 	}
 
 	return r

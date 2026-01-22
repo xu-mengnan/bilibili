@@ -48,6 +48,7 @@ YYYY-MM-DD
 
 ### 2026年
 
+- [2026-01-23 - 全新设计版本与 V2 API](2026-01-23-cyber-aqua-glass-design.md) - 创建 Cyber-Aqua Glass 美学设计版本，开发专用 V2 API 接口，新老版本并存
 - [2026-01-18 - UI 重构为企业级 SaaS 控制台风格](2026-01-18-ui-redesign-saas-console.md) - 完全重构 Web 界面设计，采用现代化企业级 SaaS 控制台风格，新增 CSS 变量系统和响应式布局
 - [2026-01-17 - AI 评论分析功能更新](2026-01-17-ai-analysis-feature.md) - 新增 AI 智能分析功能，支持多种 Prompt 模板和自定义 Prompt
 - [2026-01-12 - 子评论抓取功能更新](2026-01-12-sub-comments-feature.md) - 新增子评论抓取、层级展示和交互功能

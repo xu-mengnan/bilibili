@@ -1,0 +1,217 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>AI 评论分析 - Bilibili Tool</title>
+    <link rel="stylesheet" href="/static-new/css/style.css">
+    <link rel="stylesheet" href="/static-new/css/analysis.css">
+    <!-- markdown-it -->
+    <script src="https://cdn.jsdelivr.net/npm/markdown-it@14.0.0/dist/markdown-it.min.js"
+            onerror="this.onerror=null; this.src='https://cdn.bootcdn.net/ajax/libs/markdown-it/14.0.0/markdown-it.min.js'"></script>
+    <script>
+        window.mdParser = null;
+        if (typeof markdownit === 'undefined') {
+            console.error('markdown-it 未能加载');
+            window.mdParser = {
+                render: function(text) {
+                    return text.replace(/\n/g, '<br>')
+                        .replace(/\*\*(.*?)\*\*/g, '<strong>$1</strong>')
+                        .replace(/^### (.*$)/gm, '<h3>$1</h3>')
+                        .replace(/^## (.*$)/gm, '<h2>$1</h2>')
+                        .replace(/^# (.*$)/gm, '<h1>$1</h1>');
+                }
+            };
+        } else {
+            window.mdParser = markdownit({ html: true, breaks: true, linkify: true });
+        }
+    </script>
+</head>
+<body>
+    <div class="app">
+        <!-- Sidebar -->
+        <aside class="sidebar">
+            <div class="sidebar-header">
+                <div class="sidebar-logo">
+                    <div class="sidebar-logo-icon">B</div>
+                    <span class="sidebar-logo-text">Bilibili Tool</span>
+                </div>
+            </div>
+
+            <nav class="sidebar-nav">
+                <div class="nav-group-title">功能</div>
+                <a href="/index-new.html" class="nav-item">
+                    <span class="nav-item-icon">
+                        <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                            <path d="M12 2L2 7l10 5 10-5-10-5zM2 17l10 5 10-5M2 12l10 5 10-5"/>
+                        </svg>
+                    </span>
+                    <span class="nav-item-text">评论爬取</span>
+                </a>
+                <a href="/tasks-new.html" class="nav-item">
+                    <span class="nav-item-icon">
+                        <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                            <rect x="3" y="3" width="7" height="7"/>
+                            <rect x="14" y="3" width="7" height="7"/>
+                            <rect x="14" y="14" width="7" height="7"/>
+                            <rect x="3" y="14" width="7" height="7"/>
+                        </svg>
+                    </span>
+                    <span class="nav-item-text">任务管理</span>
+                </a>
+                <a href="/analysis-new.html" class="nav-item active">
+                    <span class="nav-item-icon">
+                        <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                            <path d="M21 16V8a2 2 0 0 0-1-1.73l-7-4a2 2 0 0 0-2 0l-7 4A2 2 0 0 0 3 8v8a2 2 0 0 0 1 1.73l7 4a2 2 0 0 0 2 0l7-4A2 2 0 0 0 21 16z"/>
+                            <polyline points="3.27 6.96 12 12.01 20.73 6.96"/>
+                            <line x1="12" y1="22.08" x2="12" y2="12"/>
+                        </svg>
+                    </span>
+                    <span class="nav-item-text">AI 分析</span>
+                </a>
+            </nav>
+
+            <div class="sidebar-footer">
+                <div class="sidebar-footer-text">仅用于学习研究</div>
+            </div>
+        </aside>
+
+        <!-- Main Content -->
+        <div class="main">
+            <header class="header">
+                <h1 class="header-title">AI 评论分析</h1>
+                <div class="header-right">
+                    <span class="badge badge-primary">智谱AI GLM-4 Flash</span>
+                </div>
+            </header>
+
+            <main class="content">
+                <div class="container">
+                    <div class="analysis-layout">
+                        <!-- Left Panel - Configuration -->
+                        <div class="config-panel">
+                            <!-- Task Selection -->
+                            <div class="config-card stagger-1">
+                                <div class="card-header">
+                                    <h2 class="card-title"><span class="step-number">1</span> 选择任务</h2>
+                                </div>
+                                <div class="card-body" style="padding: 0;">
+                                    <div class="task-list-header">
+                                        <span style="font-size: 12px; color: var(--gray-500);">已完成的任务</span>
+                                        <button id="refresh-tasks" class="refresh-btn">
+                                            <svg xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                                                <path d="M21.5 2v6h-6M2.5 22v-6h6M2 11.5a10 10 0 0 1 18.8-4.3M22 12.5a10 10 0 0 1-18.8 4.2"/>
+                                            </svg>
+                                            刷新
+                                        </button>
+                                    </div>
+                                    <div id="task-list" class="task-list">
+                                        <p class="loading" style="color: var(--gray-400); text-align: center; padding: var(--space-lg);">加载中...</p>
+                                    </div>
+                                </div>
+                            </div>
+
+                            <!-- Template Selection -->
+                            <div class="config-card stagger-2">
+                                <div class="card-header">
+                                    <h2 class="card-title"><span class="step-number">2</span> 选择模板</h2>
+                                </div>
+                                <div class="card-body" style="padding: 0;">
+                                    <div id="template-list" class="template-list">
+                                        <p class="loading" style="color: var(--gray-400); text-align: center; padding: var(--space-lg);">加载中...</p>
+                                    </div>
+                                </div>
+                            </div>
+
+                            <!-- Custom Prompt -->
+                            <div class="config-card custom-prompt-section" id="custom-prompt-section">
+                                <div class="card-header">
+                                    <h2 class="card-title">自定义 Prompt</h2>
+                                </div>
+                                <div class="card-body">
+                                    <textarea id="custom-prompt" class="custom-prompt-textarea" placeholder="输入自定义的分析Prompt..." rows="6"></textarea>
+                                    <div class="variable-hint">
+                                        可用变量: {{comments}}, {{video_title}}, {{comment_count}}
+                                    </div>
+                                </div>
+                            </div>
+
+                            <!-- Settings & Analyze -->
+                            <div class="config-card stagger-3">
+                                <div class="card-header">
+                                    <h2 class="card-title"><span class="step-number">3</span> 开始分析</h2>
+                                </div>
+                                <div class="card-body">
+                                    <div class="form-group">
+                                        <label class="form-label" for="comment-limit">分析评论数量</label>
+                                        <input type="number" id="comment-limit" class="form-input" value="0" min="0" max="1000">
+                                        <span class="form-hint">0 表示分析全部评论，建议限制数量以提高响应速度</span>
+                                    </div>
+                                    <button id="analyze-btn" class="analyze-btn" disabled>
+                                        <svg xmlns="http://www.w3.org/2000/svg" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                                            <path d="M21 16V8a2 2 0 0 0-1-1.73l-7-4a2 2 0 0 0-2 0l-7 4A2 2 0 0 0 3 8v8a2 2 0 0 0 1 1.73l7 4a2 2 0 0 0 2 0l7-4A2 2 0 0 0 21 16z"/>
+                                            <polyline points="3.27 6.96 12 12.01 20.73 6.96"/>
+                                            <line x1="12" y1="22.08" x2="12" y2="12"/>
+                                        </svg>
+                                        开始分析
+                                    </button>
+                                </div>
+                            </div>
+                        </div>
+
+                        <!-- Right Panel - Results -->
+                        <div class="results-panel">
+                            <div class="card results-card">
+                                <div class="card-header">
+                                    <h2 class="card-title">分析结果</h2>
+                                    <p class="card-subtitle" id="result-status">请先选择任务和模板</p>
+                                </div>
+                                <div class="card-body" style="padding: 0;">
+                                    <div id="result-container">
+                                        <div class="empty-state">
+                                            <div class="empty-state-icon">
+                                                <svg xmlns="http://www.w3.org/2000/svg" width="48" height="48" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5">
+                                                    <path d="M9.663 17h4.673M12 3v1m6.364 1.636l-.707.707M21 12h-1M4 12H3m3.343-5.657l-.707-.707m2.828 9.9a5 5 0 117.072 0l-.548.547A3.374 3.374 0 0014 18.469V19a2 2 0 11-4 0v-.531c0-.895-.356-1.754-.988-2.386l-.548-.547z"/>
+                                                </svg>
+                                            </div>
+                                            <div class="empty-state-title">暂无分析结果</div>
+                                            <div class="empty-state-description">请先选择已完成的任务，然后选择分析模板或自定义 Prompt</div>
+                                        </div>
+                                    </div>
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+            </main>
+        </div>
+    </div>
+
+    <!-- Preview Modal -->
+    <div id="preview-modal" class="modal" style="display: none;">
+        <div class="modal-content">
+            <div class="modal-header">
+                <h3 class="modal-title">Prompt 预览</h3>
+                <button class="modal-close" type="button">
+                    <svg xmlns="http://www.w3.org/2000/svg" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                        <line x1="18" y1="6" x2="6" y2="18"/>
+                        <line x1="6" y1="6" x2="18" y2="18"/>
+                    </svg>
+                </button>
+            </div>
+            <div class="modal-body">
+                <pre id="preview-content"></pre>
+            </div>
+            <div class="modal-footer">
+                <button class="btn btn-secondary close-modal-btn">关闭</button>
+            </div>
+        </div>
+    </div>
+
+    <!-- Error Message -->
+    <div id="error-message" class="error-message" style="display: none;"></div>
+
+    <script src="/static-new/js/api.js"></script>
+    <script src="/static-new/js/analysis.js"></script>
+</body>
+</html>
