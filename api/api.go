@@ -46,15 +46,9 @@ func SetupRoutes() *gin.Engine {
 
 	// 静态文件服务
 	r.Static("/static", "./static")
-	r.Static("/static-new", "./static-new")
 	r.StaticFile("/", "./static/index.html")
 	r.StaticFile("/tasks", "./static/tasks.html")
 	r.StaticFile("/analysis", "./static/analysis.html")
-
-	// 新设计页面（用于对比）
-	r.StaticFile("/index-new.html", "./static-new/index-new.html")
-	r.StaticFile("/tasks-new.html", "./static-new/tasks-new.html")
-	r.StaticFile("/analysis-new.html", "./static-new/analysis-new.html")
 
 	// 原有路由
 	r.GET("/hello", func(c *gin.Context) {

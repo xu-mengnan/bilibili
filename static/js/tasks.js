@@ -1,4 +1,4 @@
-// 任务管理页面逻辑
+// Tasks Page Logic
 class TasksPage {
     constructor() {
         this.tasks = [];
@@ -12,23 +12,19 @@ class TasksPage {
     }
 
     bindEvents() {
-        // 刷新按钮
         document.getElementById('refresh-btn').addEventListener('click', () => {
             this.loadTasks();
         });
 
-        // 状态筛选
         document.getElementById('status-filter').addEventListener('change', (e) => {
             this.filter = e.target.value;
             this.renderTasks();
         });
 
-        // 模态框关闭
-        document.querySelector('.close-btn').addEventListener('click', () => {
+        document.querySelector('.modal-close').addEventListener('click', () => {
             this.closeModal();
         });
 
-        // 点击模态框外部关闭
         document.getElementById('task-detail-modal').addEventListener('click', (e) => {
             if (e.target.id === 'task-detail-modal') {
                 this.closeModal();
@@ -39,8 +35,8 @@ class TasksPage {
     async loadTasks() {
         const container = document.getElementById('tasks-list');
         container.innerHTML = `
-            <div class="loading-spinner">
-                <div class="spinner"></div>
+            <div class="loading-state">
+                <div class="loading-spinner"></div>
             </div>
         `;
 
@@ -69,7 +65,6 @@ class TasksPage {
     renderTasks() {
         const container = document.getElementById('tasks-list');
 
-        // 筛选任务
         let filteredTasks = this.tasks;
         if (this.filter) {
             filteredTasks = this.tasks.filter(t => t.status === this.filter);
@@ -95,7 +90,6 @@ class TasksPage {
 
         container.innerHTML = filteredTasks.map(task => this.renderTaskItem(task)).join('');
 
-        // 绑定点击事件
         container.querySelectorAll('.task-item').forEach(item => {
             item.addEventListener('click', () => {
                 const taskId = item.dataset.taskId;
@@ -114,28 +108,47 @@ class TasksPage {
         return `
             <div class="task-item" data-task-id="${task.task_id}">
                 <div class="task-item-header">
-                    <div class="task-item-title">
+                    <div class="task-title">
                         <h3>${this.escapeHtml(task.video_title || '未知标题')}</h3>
                     </div>
-                    <span class="status-badge ${task.status}">
-                        <span class="status-dot"></span>
-                        ${statusText[task.status] || task.status}
-                    </span>
+                    <div class="task-badges">
+                        <span class="status-badge ${task.status}">
+                            <span class="status-dot"></span>
+                            ${statusText[task.status] || task.status}
+                        </span>
+                    </div>
                 </div>
-                <div class="task-item-meta">
-                    <span>任务ID: ${task.task_id.substring(0, 8)}...</span>
-                    <span>视频ID: ${task.video_id || '-'}</span>
-                    <span>开始时间: ${task.start_time}</span>
+                <div class="task-meta">
+                    <div class="task-meta-item">
+                        <svg xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                            <path d="M9 12h6m-6 4h6m2 5H7a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h5.586a1 1 0 0 1 .707.293l5.414 5.414a1 1 0 0 1 .293.707V19a2 2 0 0 1-2 2z"/>
+                        </svg>
+                        <span>ID: ${task.task_id.substring(0, 8)}...</span>
+                    </div>
+                    <div class="task-meta-item">
+                        <svg xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                            <rect x="2" y="7" width="20" height="14" rx="2" ry="2"/>
+                            <path d="M16 21V5a2 2 0 0 0-2-2h-4a2 2 0 0 0-2 2v16"/>
+                        </svg>
+                        <span>${task.video_id || '-'}</span>
+                    </div>
+                    <div class="task-meta-item">
+                        <svg xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                            <circle cx="12" cy="12" r="10"/>
+                            <polyline points="12 6 12 12 16 14"/>
+                        </svg>
+                        <span>${task.start_time}</span>
+                    </div>
                 </div>
                 <div class="task-info-row">
-                    <div class="task-info-item">
+                    <div class="task-meta-item">
                         <svg xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
                             <path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z"/>
                         </svg>
                         <span>${task.comment_count || 0} 条评论</span>
                     </div>
                     ${task.error ? `
-                    <div class="task-info-item" style="color: var(--error-color);">
+                    <div class="task-meta-item" style="color: var(--error);">
                         <svg xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
                             <circle cx="12" cy="12" r="10"/>
                             <line x1="12" y1="8" x2="12" y2="12"/>
@@ -164,15 +177,15 @@ class TasksPage {
     async showTaskDetail(taskId) {
         const content = document.getElementById('task-detail-content');
         content.innerHTML = `
-            <div class="loading-spinner">
-                <div class="spinner"></div>
+            <div class="loading-state">
+                <div class="loading-spinner"></div>
             </div>
         `;
 
         document.getElementById('task-detail-modal').style.display = 'flex';
 
         try {
-            const task = await API.getTaskProgress(taskId);
+            const task = await API.getTaskDetail(taskId);
 
             const statusText = {
                 'running': '运行中',
@@ -180,80 +193,71 @@ class TasksPage {
                 'failed': '失败'
             };
 
-            // 调试：打印任务数据
-            console.log('Task data:', task);
-            console.log('Comments:', task.comments);
-            console.log('Comments length:', task.comments?.length);
+            const comments = task.comments || [];
+            const progress = task.progress || {};
 
             content.innerHTML = `
-                <div class="task-detail-section">
-                    <h4>基本信息</h4>
-                    <div class="task-detail-grid">
-                        <div class="task-detail-item">
-                            <span class="task-detail-label">任务状态</span>
-                            <span class="task-detail-value">
+                <div class="detail-section">
+                    <h3 class="detail-section-title">基本信息</h3>
+                    <div class="detail-grid">
+                        <div class="detail-item">
+                            <div class="detail-label">任务状态</div>
+                            <div class="detail-value">
                                 <span class="status-badge ${task.status}">
                                     <span class="status-dot"></span>
                                     ${statusText[task.status] || task.status}
                                 </span>
-                            </span>
+                            </div>
                         </div>
-                        <div class="task-detail-item">
-                            <span class="task-detail-label">视频标题</span>
-                            <span class="task-detail-value">${this.escapeHtml(task.video_title || '-')}</span>
+                        <div class="detail-item">
+                            <div class="detail-label">视频标题</div>
+                            <div class="detail-value">${this.escapeHtml(task.video_title || '-')}</div>
                         </div>
-                        <div class="task-detail-item">
-                            <span class="task-detail-label">视频ID</span>
-                            <span class="task-detail-value">${task.video_id || '-'}</span>
+                        <div class="detail-item">
+                            <div class="detail-label">视频ID</div>
+                            <div class="detail-value">${task.video_id || '-'}</div>
                         </div>
-                        <div class="task-detail-item">
-                            <span class="task-detail-label">任务ID</span>
-                            <span class="task-detail-value" style="font-family: monospace; font-size: var(--font-size-xs);">${task.task_id}</span>
+                        <div class="detail-item">
+                            <div class="detail-label">任务ID</div>
+                            <div class="detail-value" style="font-family: monospace; font-size: 12px;">${task.task_id}</div>
                         </div>
-                        <div class="task-detail-item">
-                            <span class="task-detail-label">开始时间</span>
-                            <span class="task-detail-value">${task.start_time}</span>
+                        <div class="detail-item">
+                            <div class="detail-label">开始时间</div>
+                            <div class="detail-value">${task.start_time}</div>
                         </div>
-                        <div class="task-detail-item">
-                            <span class="task-detail-label">结束时间</span>
-                            <span class="task-detail-value">${task.end_time || '-'}</span>
+                        <div class="detail-item">
+                            <div class="detail-label">结束时间</div>
+                            <div class="detail-value">${task.end_time || '-'}</div>
                         </div>
-                        <div class="task-detail-item">
-                            <span class="task-detail-label">评论数量</span>
-                            <span class="task-detail-value">${task.progress?.total_comments || 0} 条</span>
+                        <div class="detail-item">
+                            <div class="detail-label">评论数量</div>
+                            <div class="detail-value">${progress.total_comments || task.comment_count || 0} 条</div>
                         </div>
-                        <div class="task-detail-item">
-                            <span class="task-detail-label">爬取页数</span>
-                            <span class="task-detail-value">${task.progress?.current_page || 0} / ${task.progress?.page_limit || 0}</span>
+                        <div class="detail-item">
+                            <div class="detail-label">爬取页数</div>
+                            <div class="detail-value">${progress.current_page || 0} / ${progress.page_limit || 0}</div>
                         </div>
                     </div>
                     ${task.error ? `
-                    <div style="margin-top: var(--space-md); padding: var(--space-md); background: var(--error-light); border-radius: var(--radius-md); color: var(--error-color);">
+                    <div class="error-box" style="margin-top: var(--space-md);">
                         <strong>错误信息：</strong>${this.escapeHtml(task.error)}
                     </div>
                     ` : ''}
                 </div>
 
-                ${task.status === 'completed' && task.comments && task.comments.length > 0 ? `
-                <div class="task-detail-section">
-                    <h4>评论预览 (前 5 条，共 ${task.comments.length} 条)</h4>
+                ${task.status === 'completed' && comments.length > 0 ? `
+                <div class="detail-section">
+                    <h3 class="detail-section-title">评论预览 (前 5 条)</h3>
                     <div class="comments-preview">
-                        ${task.comments.slice(0, 5).map(comment => `
+                        ${comments.slice(0, 5).map(comment => `
                             <div class="comment-preview-item">
                                 <div class="comment-preview-header">
-                                    <span class="comment-preview-author">${this.escapeHtml(comment.member?.uname || '匿名用户')}</span>
-                                    <span class="comment-preview-time">${new Date(comment.ctime * 1000).toLocaleString()}</span>
+                                    <span class="comment-preview-author">${this.escapeHtml(comment.author || '匿名用户')}</span>
+                                    <span class="comment-preview-time">${comment.time}</span>
                                 </div>
-                                <div class="comment-preview-content">${this.escapeHtml(comment.content?.message || '')}</div>
+                                <div class="comment-preview-content">${this.escapeHtml(comment.content || '')}</div>
                             </div>
                         `).join('')}
-                    </div>
-                </div>
-                ` : task.status === 'completed' ? `
-                <div class="task-detail-section">
-                    <h4>评论数据</h4>
-                    <div style="padding: var(--space-md); background: var(--warning-light); border-radius: var(--radius-md); color: var(--warning-color);">
-                        评论数据正在加载中，请稍后刷新重试。
                     </div>
                 </div>
                 ` : ''}
@@ -282,7 +286,7 @@ class TasksPage {
     }
 }
 
-// 初始化页面
+// Initialize
 document.addEventListener('DOMContentLoaded', () => {
     new TasksPage();
 });

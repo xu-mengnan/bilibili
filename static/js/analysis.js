@@ -1,4 +1,4 @@
-// AI 分析页面逻辑
+// AI Analysis Page Logic
 class AnalysisPage {
     constructor() {
         this.selectedTaskId = null;
@@ -15,17 +15,19 @@ class AnalysisPage {
     }
 
     bindEvents() {
-        // 刷新任务列表
-        document.getElementById('refresh-tasks').addEventListener('click', () => this.loadTasks());
+        document.getElementById('refresh-tasks').addEventListener('click', (e) => {
+            const btn = e.currentTarget;
+            btn.classList.add('spinning');
+            this.loadTasks().finally(() => {
+                setTimeout(() => btn.classList.remove('spinning'), 500);
+            });
+        });
 
-        // 分析按钮
         document.getElementById('analyze-btn').addEventListener('click', () => this.startAnalysis());
 
-        // 模态框关闭
-        document.querySelector('.close-btn').addEventListener('click', () => this.closeModal());
+        document.querySelector('.modal-close').addEventListener('click', () => this.closeModal());
         document.querySelector('.close-modal-btn').addEventListener('click', () => this.closeModal());
 
-        // 点击模态框外部关闭
         document.getElementById('preview-modal').addEventListener('click', (e) => {
             if (e.target.id === 'preview-modal') {
                 this.closeModal();
@@ -45,63 +47,60 @@ class AnalysisPage {
     renderTemplates() {
         const container = document.getElementById('template-list');
         if (this.templates.length === 0) {
-            container.innerHTML = '<p class="empty">暂无模板</p>';
+            container.innerHTML = '<p style="color: var(--gray-400); text-align: center; padding: var(--space-lg);">暂无模板</p>';
             return;
         }
 
         container.innerHTML = this.templates.map(t => `
-            <div class="template-item ${this.selectedTemplateId === t.id ? 'selected' : ''}"
-                 data-id="${t.id}">
+            <div class="template-option ${this.selectedTemplateId === t.id ? 'selected' : ''}" data-id="${t.id}">
                 <div class="template-header">
-                    <input type="radio" name="template" value="${t.id}"
-                           ${this.selectedTemplateId === t.id ? 'checked' : ''}>
+                    <input type="radio" name="template" value="${t.id}" ${this.selectedTemplateId === t.id ? 'checked' : ''}>
                     <div class="template-info">
-                        <h4>${t.name}</h4>
-                        <p>${t.description}</p>
+                        <div class="template-name">${t.name}</div>
+                        <div class="template-description">${t.description}</div>
                     </div>
                 </div>
                 ${t.id === 'custom' ? `
                 <div class="template-actions">
-                    <button class="btn-text edit-prompt-btn">
-                        <svg xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" style="margin-right: 4px;">
+                    <button class="template-action-btn edit-prompt-btn">
+                        <svg xmlns="http://www.w3.org/2000/svg" width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
                             <path d="M11 4H4a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2v-7"/>
                             <path d="M18.5 2.5a2.121 2.121 0 0 1 3 3L12 15l-4 1 1-4 9.5-9.5z"/>
                         </svg>
-                        编辑 Prompt
+                        编辑
                     </button>
                 </div>` : `
                 <div class="template-actions">
-                    <button class="btn-text preview-btn">
-                        <svg xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" style="margin-right: 4px;">
+                    <button class="template-action-btn preview-btn">
+                        <svg xmlns="http://www.w3.org/2000/svg" width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
                             <path d="M1 12s4-8 11-8 11 8 11 8-4 8-11 8-11-8-11-8z"/>
                             <circle cx="12" cy="12" r="3"/>
                         </svg>
-                        预览 Prompt
+                        预览
                     </button>
                 </div>`}
             </div>
         `).join('');
 
-        // 绑定模板选择事件
-        container.querySelectorAll('.template-item').forEach(item => {
+        // Bind selection events
+        container.querySelectorAll('.template-option').forEach(item => {
             item.addEventListener('click', (e) => {
-                if (!e.target.classList.contains('preview-btn') &&
-                    !e.target.classList.contains('edit-prompt-btn')) {
+                if (!e.target.classList.contains('preview-btn') && !e.target.classList.contains('edit-prompt-btn')) {
                     this.selectTemplate(item.dataset.id);
                 }
             });
         });
 
-        // 绑定预览按钮事件
+        // Bind preview buttons
         container.querySelectorAll('.preview-btn').forEach(btn => {
             btn.addEventListener('click', (e) => {
                 e.stopPropagation();
-                const templateId = btn.closest('.template-item').dataset.id;
+                const templateId = btn.closest('.template-option').dataset.id;
                 this.previewPrompt(templateId);
             });
         });
 
-        // 绑定编辑按钮事件
+        // Bind edit buttons
         container.querySelectorAll('.edit-prompt-btn').forEach(btn => {
             btn.addEventListener('click', (e) => {
                 e.stopPropagation();
@@ -114,12 +113,12 @@ class AnalysisPage {
 
     selectTemplate(templateId) {
         this.selectedTemplateId = templateId;
-        document.querySelectorAll('.template-item').forEach(item => {
+        document.querySelectorAll('.template-option').forEach(item => {
             item.classList.toggle('selected', item.dataset.id === templateId);
         });
 
         const customSection = document.getElementById('custom-prompt-section');
-        customSection.style.display = templateId === 'custom' ? 'block' : 'none';
+        customSection.classList.toggle('show', templateId === 'custom');
 
         this.updateAnalyzeButton();
     }
@@ -127,9 +126,11 @@ class AnalysisPage {
     async loadTasks() {
         try {
             const container = document.getElementById('task-list');
-            container.innerHTML = '<p class="loading">加载中...</p>';
+            container.innerHTML = '<p style="color: var(--gray-400); text-align: center; padding: var(--space-lg);">加载中...</p>';
 
-            this.tasks = await API.getCompletedTasks();
+            // 获取所有任务，过滤已完成的
+            const allTasks = await API.getAllTasks();
+            this.tasks = allTasks.filter(t => t.status === 'completed');
             this.renderTasks();
         } catch (error) {
             this.showError('加载任务失败: ' + error.message);
@@ -139,27 +140,21 @@ class AnalysisPage {
     renderTasks() {
         const container = document.getElementById('task-list');
         if (this.tasks.length === 0) {
-            container.innerHTML = '<p class="empty">暂无已完成任务，请先在主页进行爬取</p>';
+            container.innerHTML = '<p style="color: var(--gray-400); text-align: center; padding: var(--space-lg);">暂无已完成任务</p>';
             return;
         }
 
         container.innerHTML = this.tasks.map(t => `
-            <div class="task-item ${this.selectedTaskId === t.task_id ? 'selected' : ''}"
-                 data-id="${t.task_id}">
-                <div class="task-header">
-                    <input type="radio" name="task" value="${t.task_id}"
-                           ${this.selectedTaskId === t.task_id ? 'checked' : ''}>
-                    <div class="task-info">
-                        <h4>${this.escapeHtml(t.video_title || '未知标题')}</h4>
-                        <p>评论数: ${t.comment_count} | 时间: ${t.start_time}</p>
-                    </div>
+            <div class="task-option ${this.selectedTaskId === t.task_id ? 'selected' : ''}" data-id="${t.task_id}">
+                <input type="radio" name="task" value="${t.task_id}" ${this.selectedTaskId === t.task_id ? 'checked' : ''}>
+                <div class="task-info">
+                    <div class="task-title">${this.escapeHtml(t.video_title || '未知标题')}</div>
+                    <div class="task-meta">评论数: ${t.comment_count} | 时间: ${t.start_time}</div>
                 </div>
-                <div class="task-id">${t.task_id}</div>
             </div>
         `).join('');
 
-        // 绑定任务选择事件
-        container.querySelectorAll('.task-item').forEach(item => {
+        container.querySelectorAll('.task-option').forEach(item => {
             item.addEventListener('click', () => {
                 this.selectTask(item.dataset.id);
             });
@@ -170,7 +165,7 @@ class AnalysisPage {
 
     selectTask(taskId) {
         this.selectedTaskId = taskId;
-        document.querySelectorAll('.task-item').forEach(item => {
+        document.querySelectorAll('.task-option').forEach(item => {
             item.classList.toggle('selected', item.dataset.id === taskId);
         });
 
@@ -213,25 +208,25 @@ class AnalysisPage {
 
         const btn = document.getElementById('analyze-btn');
         btn.disabled = true;
-        btn.textContent = '分析中...';
+        btn.innerHTML = `
+            <svg xmlns="http://www.w3.org/2000/svg" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" class="spinner">
+                <path d="M21 12a9 9 0 1 1-6.219-8.56"/>
+            </svg>
+            分析中...
+        `;
 
         const resultContainer = document.getElementById('result-container');
 
-        // 初始化流式显示容器
         resultContainer.innerHTML = `
-            <div class="result-header">
-                <h3>分析进行中</h3>
-                <span class="timestamp">正在生成分析结果...</span>
-            </div>
-            <div class="result-content markdown-body streaming-content" id="streaming-content"></div>
-            <div class="streaming-indicator">
-                <span class="dot"></span>
-                <span class="dot"></span>
-                <span class="dot"></span>
+            <div class="analyzing-state">
+                <div class="analyzing-spinner"></div>
+                <div class="analyzing-text">AI 正在分析评论...</div>
+                <div class="analyzing-hint">这可能需要几秒钟，请耐心等待</div>
+                <div id="streaming-preview" style="margin-top: var(--space-md); padding: var(--space-md); background: var(--gray-50); border-radius: var(--radius-md); max-height: 300px; overflow-y: auto; text-align: left; font-size: 13px; color: var(--gray-600); white-space: pre-wrap; display: none;"></div>
             </div>
         `;
 
-        const streamingContent = document.getElementById('streaming-content');
+        const streamingPreview = document.getElementById('streaming-preview');
         let fullContent = '';
 
         try {
@@ -248,51 +243,57 @@ class AnalysisPage {
                 request.custom_prompt = customPrompt;
             }
 
-            // 使用流式 API
             API.analyzeStream(
                 request,
-                // onChunk - 接收累积的完整内容
                 (accumulatedContent) => {
-                    fullContent = accumulatedContent; // 直接使用累积的完整内容
-                    // 流式渲染期间显示纯文本（保留换行），避免解析不完整的 markdown
-                    streamingContent.innerHTML = `<pre style="white-space: pre-wrap; font-family: inherit; line-height: 1.8;">${this.escapeHtml(fullContent)}</pre>`;
+                    fullContent = accumulatedContent;
+                    // 实时显示进度（纯文本，避免解析不完整的markdown）
+                    streamingPreview.style.display = 'block';
+                    streamingPreview.textContent = fullContent;
                     // 自动滚动到底部
-                    streamingContent.scrollTop = streamingContent.scrollHeight;
+                    streamingPreview.scrollTop = streamingPreview.scrollHeight;
                 },
-                // onDone - 分析完成
                 () => {
-                    console.log('[Analysis] Stream completed, total content length:', fullContent.length);
-                    console.log('[Analysis] First 200 chars:', fullContent.substring(0, 200));
                     const timestamp = new Date().toLocaleString();
                     let finalHtml;
+
                     try {
-                        // 检查 mdParser 是否可用
                         if (window.mdParser && typeof window.mdParser.render === 'function') {
                             finalHtml = window.mdParser.render(fullContent);
-                            console.log('[Analysis] Rendered HTML length:', finalHtml.length);
                         } else {
-                            // 不可用，显示纯文本（保留换行）
                             finalHtml = `<pre style="white-space: pre-wrap; font-family: inherit;">${this.escapeHtml(fullContent)}</pre>`;
                         }
                     } catch (e) {
-                        console.error('Markdown parse error:', e);
                         finalHtml = `<pre style="white-space: pre-wrap; font-family: inherit;">${this.escapeHtml(fullContent)}</pre>`;
                     }
 
                     resultContainer.innerHTML = `
                         <div class="result-header">
-                            <h3>分析完成</h3>
-                            <span class="timestamp">生成时间: ${this.escapeHtml(timestamp)}</span>
+                            <div class="result-title">分析完成</div>
+                            <div class="result-timestamp">${this.escapeHtml(timestamp)}</div>
                         </div>
                         <div class="result-content markdown-body">${finalHtml}</div>
                         <div class="result-actions">
-                            <button class="btn copy-btn">复制结果</button>
-                            <button class="btn download-btn">下载Markdown</button>
+                            <button class="action-btn copy">
+                                <svg xmlns="http://www.w3.org/2000/svg" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                                    <rect x="9" y="9" width="13" height="13" rx="2" ry="2"/>
+                                    <path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"/>
+                                </svg>
+                                复制结果
+                            </button>
+                            <button class="action-btn download">
+                                <svg xmlns="http://www.w3.org/2000/svg" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                                    <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/>
+                                    <polyline points="7 10 12 15 17 10"/>
+                                    <line x1="12" y1="15" x2="12" y2="3"/>
+                                </svg>
+                                下载 Markdown
+                            </button>
                         </div>
                     `;
 
-                    // 绑定复制按钮
-                    const copyBtn = resultContainer.querySelector('.copy-btn');
+                    // Bind copy button
+                    const copyBtn = resultContainer.querySelector('.action-btn.copy');
                     if (copyBtn) {
                         copyBtn.addEventListener('click', () => {
                             navigator.clipboard.writeText(fullContent);
@@ -300,8 +301,8 @@ class AnalysisPage {
                         });
                     }
 
-                    // 绑定下载按钮
-                    const downloadBtn = resultContainer.querySelector('.download-btn');
+                    // Bind download button
+                    const downloadBtn = resultContainer.querySelector('.action-btn.download');
                     if (downloadBtn) {
                         downloadBtn.addEventListener('click', () => {
                             this.downloadMarkdown(fullContent);
@@ -309,10 +310,16 @@ class AnalysisPage {
                     }
 
                     btn.disabled = false;
-                    btn.textContent = '开始分析';
+                    btn.innerHTML = `
+                        <svg xmlns="http://www.w3.org/2000/svg" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                            <path d="M21 16V8a2 2 0 0 0-1-1.73l-7-4a2 2 0 0 0-2 0l-7 4A2 2 0 0 0 3 8v8a2 2 0 0 0 1 1.73l7 4a2 2 0 0 0 2 0l7-4A2 2 0 0 0 21 16z"/>
+                            <polyline points="3.27 6.96 12 12.01 20.73 6.96"/>
+                            <line x1="12" y1="22.08" x2="12" y2="12"/>
+                        </svg>
+                        开始分析
+                    `;
                     this.updateAnalyzeButton();
                 },
-                // onError - 发生错误
                 (error) => {
                     const errorMsg = error.message || '未知错误';
                     resultContainer.innerHTML = `
@@ -322,7 +329,14 @@ class AnalysisPage {
                         </div>
                     `;
                     btn.disabled = false;
-                    btn.textContent = '开始分析';
+                    btn.innerHTML = `
+                        <svg xmlns="http://www.w3.org/2000/svg" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                            <path d="M21 16V8a2 2 0 0 0-1-1.73l-7-4a2 2 0 0 0-2 0l-7 4A2 2 0 0 0 3 8v8a2 2 0 0 0 1 1.73l7 4a2 2 0 0 0 2 0l7-4A2 2 0 0 0 21 16z"/>
+                            <polyline points="3.27 6.96 12 12.01 20.73 6.96"/>
+                            <line x1="12" y1="22.08" x2="12" y2="12"/>
+                        </svg>
+                        开始分析
+                    `;
                     this.updateAnalyzeButton();
                 }
             );
@@ -336,7 +350,14 @@ class AnalysisPage {
                 </div>
             `;
             btn.disabled = false;
-            btn.textContent = '开始分析';
+            btn.innerHTML = `
+                <svg xmlns="http://www.w3.org/2000/svg" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                    <path d="M21 16V8a2 2 0 0 0-1-1.73l-7-4a2 2 0 0 0-2 0l-7 4A2 2 0 0 0 3 8v8a2 2 0 0 0 1 1.73l7 4a2 2 0 0 0 2 0l7-4A2 2 0 0 0 21 16z"/>
+                    <polyline points="3.27 6.96 12 12.01 20.73 6.96"/>
+                    <line x1="12" y1="22.08" x2="12" y2="12"/>
+                </svg>
+                开始分析
+            `;
             this.updateAnalyzeButton();
         }
     }
@@ -380,7 +401,6 @@ class AnalysisPage {
     }
 
     escapeHtml(text) {
-        // 手动转义 HTML 特殊字符，保留换行符
         return text
             .replace(/&/g, '&amp;')
             .replace(/</g, '&lt;')
@@ -390,7 +410,7 @@ class AnalysisPage {
     }
 }
 
-// 初始化页面
+// Initialize
 document.addEventListener('DOMContentLoaded', () => {
     new AnalysisPage();
 });

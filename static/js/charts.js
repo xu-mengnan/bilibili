@@ -1,126 +1,58 @@
-// 图表渲染模块
+// Charts Module
 const Charts = {
     timeChart: null,
     likesChart: null,
 
-    /**
-     * 渲染评论时间分布图
-     * @param {Array} comments - 评论数据
-     */
+    renderAll(comments) {
+        this.renderTimeChart(comments);
+        this.renderLikesChart(comments);
+    },
+
     renderTimeChart(comments) {
         const ctx = document.getElementById('time-chart');
         if (!ctx) return;
 
-        // 按日期统计评论数
-        const dateCounts = {};
-        comments.forEach(comment => {
-            const date = comment.time.split(' ')[0]; // 提取日期部分
-            dateCounts[date] = (dateCounts[date] || 0) + 1;
-        });
-
-        // 排序日期
-        const sortedDates = Object.keys(dateCounts).sort();
-        const counts = sortedDates.map(date => dateCounts[date]);
-
-        // 销毁旧图表
+        // Destroy existing chart
         if (this.timeChart) {
             this.timeChart.destroy();
         }
 
-        // 创建新图表
+        // Process data - group by date
+        const timeData = {};
+        comments.forEach(comment => {
+            let date = 'Unknown';
+            if (comment.timestamp) {
+                date = new Date(comment.timestamp).toLocaleDateString('zh-CN');
+            } else if (comment.time) {
+                // Try to parse time string
+                const match = comment.time.match(/(\d{4}-\d{2}-\d{2})/);
+                if (match) {
+                    date = match[1];
+                }
+            }
+            timeData[date] = (timeData[date] || 0) + 1;
+        });
+
+        const labels = Object.keys(timeData).sort();
+        const data = labels.map(label => timeData[label]);
+
         this.timeChart = new Chart(ctx, {
             type: 'line',
             data: {
-                labels: sortedDates,
+                labels: labels,
                 datasets: [{
                     label: '评论数',
-                    data: counts,
-                    borderColor: '#667eea',
-                    backgroundColor: 'rgba(102, 126, 234, 0.1)',
+                    data: data,
+                    borderColor: '#06B6D4',
+                    backgroundColor: 'rgba(6, 182, 212, 0.1)',
+                    borderWidth: 2,
+                    fill: true,
                     tension: 0.4,
-                    fill: true
-                }]
-            },
-            options: {
-                responsive: true,
-                maintainAspectRatio: false,
-                plugins: {
-                    legend: {
-                        display: true,
-                        position: 'top'
-                    },
-                    tooltip: {
-                        mode: 'index',
-                        intersect: false
-                    }
-                },
-                scales: {
-                    y: {
-                        beginAtZero: true,
-                        ticks: {
-                            precision: 0
-                        }
-                    }
-                }
-            }
-        });
-    },
-
-    /**
-     * 渲染点赞数分布图
-     * @param {Array} comments - 评论数据
-     */
-    renderLikesChart(comments) {
-        const ctx = document.getElementById('likes-chart');
-        if (!ctx) return;
-
-        // 统计点赞数分布
-        const distribution = {
-            '0-10': 0,
-            '11-50': 0,
-            '51-100': 0,
-            '100+': 0
-        };
-
-        comments.forEach(comment => {
-            const likes = comment.likes;
-            if (likes <= 10) {
-                distribution['0-10']++;
-            } else if (likes <= 50) {
-                distribution['11-50']++;
-            } else if (likes <= 100) {
-                distribution['51-100']++;
-            } else {
-                distribution['100+']++;
-            }
-        });
-
-        // 销毁旧图表
-        if (this.likesChart) {
-            this.likesChart.destroy();
-        }
-
-        // 创建新图表
-        this.likesChart = new Chart(ctx, {
-            type: 'bar',
-            data: {
-                labels: Object.keys(distribution),
-                datasets: [{
-                    label: '评论数',
-                    data: Object.values(distribution),
-                    backgroundColor: [
-                        'rgba(102, 126, 234, 0.8)',
-                        'rgba(118, 75, 162, 0.8)',
-                        'rgba(237, 100, 166, 0.8)',
-                        'rgba(255, 154, 158, 0.8)'
-                    ],
-                    borderColor: [
-                        '#667eea',
-                        '#764ba2',
-                        '#ed64a6',
-                        '#ff9a9e'
-                    ],
-                    borderWidth: 2
+                    pointBackgroundColor: '#06B6D4',
+                    pointBorderColor: '#fff',
+                    pointBorderWidth: 2,
+                    pointRadius: 4,
+                    pointHoverRadius: 6
                 }]
             },
             options: {
@@ -131,18 +63,38 @@ const Charts = {
                         display: false
                     },
                     tooltip: {
-                        callbacks: {
-                            label: function(context) {
-                                return `评论数: ${context.parsed.y}`;
-                            }
-                        }
+                        backgroundColor: 'rgba(15, 23, 42, 0.9)',
+                        titleColor: '#fff',
+                        bodyColor: '#E2E8F0',
+                        borderColor: 'rgba(6, 182, 212, 0.3)',
+                        borderWidth: 1,
+                        cornerRadius: 8,
+                        padding: 12
                     }
                 },
                 scales: {
+                    x: {
+                        grid: {
+                            display: false
+                        },
+                        ticks: {
+                            color: '#64748B',
+                            font: {
+                                size: 11
+                            }
+                        }
+                    },
                     y: {
                         beginAtZero: true,
+                        grid: {
+                            color: 'rgba(226, 232, 240, 0.6)'
+                        },
                         ticks: {
-                            precision: 0
+                            color: '#64748B',
+                            font: {
+                                size: 11
+                            },
+                            stepSize: 1
                         }
                     }
                 }
@@ -150,24 +102,110 @@ const Charts = {
         });
     },
 
-    /**
-     * 渲染所有图表
-     * @param {Array} comments - 评论数据
-     */
-    renderAll(comments) {
-        if (!comments || comments.length === 0) {
-            console.warn('No comments data for charts');
-            return;
+    renderLikesChart(comments) {
+        const ctx = document.getElementById('likes-chart');
+        if (!ctx) return;
+
+        // Destroy existing chart
+        if (this.likesChart) {
+            this.likesChart.destroy();
         }
 
-        this.renderTimeChart(comments);
-        this.renderLikesChart(comments);
+        // Process data - group likes into ranges
+        const ranges = {
+            '0': 0,
+            '1-10': 0,
+            '11-50': 0,
+            '51-100': 0,
+            '101+': 0
+        };
+
+        comments.forEach(comment => {
+            const likes = comment.likes || 0;
+            if (likes === 0) {
+                ranges['0']++;
+            } else if (likes <= 10) {
+                ranges['1-10']++;
+            } else if (likes <= 50) {
+                ranges['11-50']++;
+            } else if (likes <= 100) {
+                ranges['51-100']++;
+            } else {
+                ranges['101+']++;
+            }
+        });
+
+        const labels = Object.keys(ranges);
+        const data = Object.values(ranges);
+
+        // Generate gradient colors
+        const gradientColors = labels.map((_, i) => {
+            const alpha = 0.4 + (i * 0.15);
+            return `rgba(6, 182, 212, ${alpha})`;
+        });
+
+        this.likesChart = new Chart(ctx, {
+            type: 'bar',
+            data: {
+                labels: labels,
+                datasets: [{
+                    label: '评论数',
+                    data: data,
+                    backgroundColor: gradientColors,
+                    borderColor: '#06B6D4',
+                    borderWidth: 0,
+                    borderRadius: 6,
+                    borderSkipped: false
+                }]
+            },
+            options: {
+                responsive: true,
+                maintainAspectRatio: false,
+                plugins: {
+                    legend: {
+                        display: false
+                    },
+                    tooltip: {
+                        backgroundColor: 'rgba(15, 23, 42, 0.9)',
+                        titleColor: '#fff',
+                        bodyColor: '#E2E8F0',
+                        borderColor: 'rgba(6, 182, 212, 0.3)',
+                        borderWidth: 1,
+                        cornerRadius: 8,
+                        padding: 12
+                    }
+                },
+                scales: {
+                    x: {
+                        grid: {
+                            display: false
+                        },
+                        ticks: {
+                            color: '#64748B',
+                            font: {
+                                size: 11
+                            }
+                        }
+                    },
+                    y: {
+                        beginAtZero: true,
+                        grid: {
+                            color: 'rgba(226, 232, 240, 0.6)'
+                        },
+                        ticks: {
+                            color: '#64748B',
+                            font: {
+                                size: 11
+                            },
+                            stepSize: 1
+                        }
+                    }
+                }
+            }
+        });
     },
 
-    /**
-     * 销毁所有图表
-     */
-    destroyAll() {
+    destroy() {
         if (this.timeChart) {
             this.timeChart.destroy();
             this.timeChart = null;
