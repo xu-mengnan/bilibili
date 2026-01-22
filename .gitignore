@@ -21,6 +21,7 @@ profile.cov
 data/
 data/tasks/
 data/tasks/.backup/
+*.ps1
 
 # Dependency directories (remove the comment below to include it)
 # vendor/

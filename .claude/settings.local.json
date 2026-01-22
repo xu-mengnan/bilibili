@@ -24,7 +24,21 @@
       "Bash(dir \"C:\\\\Users\\\\x_mn\\\\Desktop\\\\go_code\\\\bilibili\")",
       "Bash(timeout 8 go run:*)",
       "Bash(tree:*)",
-      "Bash(dir:*)"
+      "Bash(dir:*)",
+      "Skill(skill-creator)",
+      "Bash(python:*)",
+      "Bash(yt-dlp:*)",
+      "Bash(pip install:*)",
+      "Bash(pip3 install:*)",
+      "Bash(winget install:*)",
+      "WebSearch",
+      "Bash(powershell:*)",
+      "Bash(\"/mnt/c/Users/x_mn/AppData/Local/Microsoft/WinGet/Packages/yt-dlp.yt-dlp_Microsoft.Winget.Source_2025.12.8_x64__yt-dlp/yt-dlp.exe\" -o \"C:\\\\Users\\\\x_mn\\\\Desktop\\\\%\\(title\\)s.%\\(ext\\)s\" \"https://www.bilibili.com/video/BV1EXksBGEa8/\")",
+      "Bash(cmd.exe /c \"yt-dlp -o \"\"C:\\\\Users\\\\x_mn\\\\Desktop\\\\%\\(title\\)s.%\\(ext\\)s\"\" \"\"https://www.bilibili.com/video/BV1EXksBGEa8/\"\"\")",
+      "Bash(claude /plugin marketplace add:*)",
+      "Bash(cmd.exe:*)",
+      "Bash(git clone:*)",
+      "Bash(git -c http.proxy= -c https.proxy= clone https://github.com/anthropics/skills.git .claude/skills-official)"
     ]
   }
 }
