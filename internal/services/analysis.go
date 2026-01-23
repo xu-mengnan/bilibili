@@ -3,6 +3,7 @@ package services
 import (
 	"bufio"
 	"bytes"
+	"context"
 	"encoding/json"
 	"fmt"
 	"io"
@@ -453,13 +454,20 @@ func (s *AnalysisService) getMockResponse(prompt string) string {
 type ChunkCallback func(chunk string)
 
 // CallLLMStream 调用LLM API（流式输出，带回调）
-func (s *AnalysisService) CallLLMStream(callback ChunkCallback, prompt string) (string, error) {
+func (s *AnalysisService) CallLLMStream(ctx context.Context, callback ChunkCallback, prompt string) (string, error) {
 	if s.apiKey == "" {
 		// 模拟响应也使用流式输出，每次发送累积的完整内容
 		mockResponse := s.getMockResponse(prompt)
 		chunks := splitIntoChunks(mockResponse, 20) // 每20个字符为一个chunk
 		var accumulated strings.Builder
 		for _, chunk := range chunks {
+			// 检查是否被取消
+			select {
+			case <-ctx.Done():
+				return "", ctx.Err()
+			default:
+			}
+
 			accumulated.WriteString(chunk)
 			callback(accumulated.String()) // 发送累积的完整内容
 		}
@@ -488,6 +496,9 @@ func (s *AnalysisService) CallLLMStream(callback ChunkCallback, prompt string) (
 	if err != nil {
 		return "", fmt.Errorf("创建请求失败: %w", err)
 	}
+
+	// 使用传入的 context
+	httpReq = httpReq.WithContext(ctx)
 
 	httpReq.Header.Set("Content-Type", "application/json")
 	httpReq.Header.Set("Authorization", "Bearer "+s.apiKey)
@@ -518,6 +529,13 @@ func (s *AnalysisService) CallLLMStream(callback ChunkCallback, prompt string) (
 	chunkCount := 0
 
 	for {
+		// 检查是否被取消
+		select {
+		case <-ctx.Done():
+			return "", ctx.Err()
+		default:
+		}
+
 		line, isPrefix, err := reader.ReadLine()
 		if err != nil {
 			if err == io.EOF {

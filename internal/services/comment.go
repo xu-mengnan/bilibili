@@ -1,6 +1,7 @@
 package services
 
 import (
+	"context"
 	"fmt"
 	"github.com/google/uuid"
 	"sort"
@@ -10,10 +11,14 @@ import (
 
 	"bilibili/pkg/bilibili"
 	"bilibili/pkg/storage"
+	"bilibili/pkg/utils"
 )
 
 // CommentService 评论服务，管理爬取任务
 type CommentService struct {
+	ctx     context.Context
+	cancel  context.CancelFunc
+	wg      sync.WaitGroup
 	tasks   map[string]*ScrapeTask
 	mu      sync.RWMutex
 	storage storage.TaskStorage // 存储层
@@ -49,8 +54,12 @@ type TaskProgress struct {
 }
 
 // NewCommentService 创建评论服务
-func NewCommentService(storage storage.TaskStorage) *CommentService {
+func NewCommentService(ctx context.Context, storage storage.TaskStorage) *CommentService {
+	serviceCtx, cancel := context.WithCancel(ctx)
+
 	cs := &CommentService{
+		ctx:     serviceCtx,
+		cancel:  cancel,
 		tasks:   make(map[string]*ScrapeTask),
 		storage: storage,
 		dirty:   make(map[string]bool),
@@ -63,10 +72,18 @@ func NewCommentService(storage storage.TaskStorage) *CommentService {
 	cs.loadTasksFromStorage()
 
 	// 启动持久化goroutine
-	go cs.persistWorker()
+	cs.wg.Add(1)
+	go func() {
+		defer cs.wg.Done()
+		cs.persistWorker()
+	}()
 
 	// 启动清理goroutine
-	go cs.cleanupWorker()
+	cs.wg.Add(1)
+	go func() {
+		defer cs.wg.Done()
+		cs.cleanupWorker()
+	}()
 
 	return cs
 }
@@ -105,35 +122,88 @@ func (cs *CommentService) StartScrapeTask(videoID, authType, cookie, appKey, app
 	go cs.saveTask(task)
 
 	// 在后台执行爬取
-	go cs.executeScrapingTask(taskID)
+	cs.wg.Add(1)
+	go func() {
+		defer cs.wg.Done()
+		cs.executeScrapingTask(taskID)
+	}()
 
 	return taskID, nil
 }
 
 // GetTaskProgress 获取任务进度
 func (cs *CommentService) GetTaskProgress(taskID string) (*ScrapeTask, error) {
+	// 先尝试从内存获取
 	cs.mu.RLock()
 	task, exists := cs.tasks[taskID]
-	if !exists {
-		cs.mu.RUnlock()
-		return nil, fmt.Errorf("task not found: %s", taskID)
-	}
+	cs.mu.RUnlock()
 
-	// 对于 completed 状态的任务，确保评论数据已加载
-	if task.Status == "completed" && (task.Comments == nil || len(task.Comments) == 0) {
-		cs.mu.RUnlock()
-		// 需要加载评论数据，升级为写锁
-		cs.mu.Lock()
-		defer cs.mu.Unlock()
-		// 再次检查（可能在等待锁时已被其他 goroutine 加载）
-		task = cs.tasks[taskID]
-		if task.Comments == nil || len(task.Comments) == 0 {
-			cs.loadTaskComments(task)
+	// 如果任务不存在，尝试从存储加载
+	if !exists {
+		// 从索引加载任务元数据
+		index, err := cs.storage.LoadIndex()
+		if err != nil {
+			return nil, fmt.Errorf("failed to load index: %w", err)
 		}
+
+		var foundMeta *storage.TaskMeta
+		for i := range index.Tasks {
+			if index.Tasks[i].TaskID == taskID {
+				foundMeta = &index.Tasks[i]
+				break
+			}
+		}
+
+		if foundMeta == nil {
+			return nil, fmt.Errorf("task not found: %s", taskID)
+		}
+
+		// 构建任务对象（不含评论数据，懒加载）
+		task = &ScrapeTask{
+			TaskID:     foundMeta.TaskID,
+			VideoID:    foundMeta.VideoID,
+			VideoTitle: foundMeta.VideoTitle,
+			Status:     foundMeta.Status,
+			Comments:   nil, // 懒加载
+			Progress: TaskProgress{
+				TotalComments: foundMeta.CommentCount,
+				PageLimit:     2, // 默认值
+			},
+			StartTime: foundMeta.StartTime,
+			EndTime:   foundMeta.EndTime,
+			Error:     foundMeta.Error,
+		}
+
+		// 将任务添加到内存中
+		cs.mu.Lock()
+		cs.tasks[taskID] = task
+		cs.mu.Unlock()
+
 		return task, nil
 	}
 
-	cs.mu.RUnlock()
+	// 对于 completed 状态的任务，检查评论数据
+	if task.Status == "completed" && (task.Comments == nil || len(task.Comments) == 0) {
+		// 需要加载评论数据，直接从存储加载，不持有锁
+		taskData, err := cs.storage.LoadTask(taskID)
+		if err != nil {
+			return nil, fmt.Errorf("failed to load task comments: %w", err)
+		}
+
+		comments := cs.convertFromStorageFormat(taskData.Comments)
+
+		// 获取锁并更新（双重检查）
+		cs.mu.Lock()
+		task = cs.tasks[taskID] // 重新获取（可能已被删除或加载）
+		if task != nil && (task.Comments == nil || len(task.Comments) == 0) {
+			task.Comments = comments
+			task.Progress.TotalComments = len(comments)
+		}
+		cs.mu.Unlock()
+
+		return task, nil
+	}
+
 	return task, nil
 }
 
@@ -253,6 +323,19 @@ func (cs *CommentService) executeScrapingTask(taskID string) {
 	commentMap := make(map[int64]bilibili.CommentData) // 用于去重
 
 	for page := 1; page <= task.PageLimit; page++ {
+		// 检查是否被取消
+		select {
+		case <-cs.ctx.Done():
+			utils.LogInfo("Scraping task cancelled: " + taskID)
+			cs.mu.Lock()
+			task.Status = "cancelled"
+			task.Error = "Task cancelled by shutdown"
+			task.EndTime = time.Now()
+			cs.mu.Unlock()
+			return
+		default:
+		}
+
 		// 获取评论
 		var commentsResp *bilibili.CommentResponse
 		var err error
@@ -325,13 +408,18 @@ func (cs *CommentService) executeScrapingTask(taskID string) {
 	// 标记任务完成
 	cs.mu.Lock()
 	task.Status = "completed"
-	task.Comments = comments
+	task.Comments = comments // 临时保存，用于持久化
 	task.Progress.TotalComments = len(comments)
 	task.EndTime = time.Now()
 	cs.mu.Unlock()
 
 	// 立即持久化完成的任务
 	cs.saveTask(task)
+
+	// 持久化后释放内存（懒加载）
+	cs.mu.Lock()
+	task.Comments = nil
+	cs.mu.Unlock()
 }
 
 // updateTaskError 更新任务错误状态
@@ -403,8 +491,14 @@ func (cs *CommentService) cleanupWorker() {
 	ticker := time.NewTicker(30 * time.Minute)
 	defer ticker.Stop()
 
-	for range ticker.C {
-		cs.CleanOldTasks()
+	for {
+		select {
+		case <-cs.ctx.Done():
+			utils.LogInfo("cleanupWorker stopped")
+			return
+		case <-ticker.C:
+			cs.CleanOldTasks()
+		}
 	}
 }
 
@@ -473,8 +567,14 @@ func (cs *CommentService) persistWorker() {
 	ticker := time.NewTicker(30 * time.Second)
 	defer ticker.Stop()
 
-	for range ticker.C {
-		cs.persistDirtyTasks()
+	for {
+		select {
+		case <-cs.ctx.Done():
+			utils.LogInfo("persistWorker stopped")
+			return
+		case <-ticker.C:
+			cs.persistDirtyTasks()
+		}
 	}
 }
 
@@ -683,4 +783,28 @@ func (cs *CommentService) markDirty(taskID string) {
 	cs.mu.Lock()
 	defer cs.mu.Unlock()
 	cs.dirty[taskID] = true
+}
+
+// Shutdown 优雅关闭服务
+func (cs *CommentService) Shutdown(ctx context.Context) error {
+	utils.LogInfo("Shutting down CommentService...")
+
+	// 取消 context
+	cs.cancel()
+
+	// 等待所有 goroutine 结束
+	done := make(chan struct{})
+	go func() {
+		cs.wg.Wait()
+		close(done)
+	}()
+
+	select {
+	case <-done:
+		utils.LogInfo("CommentService shutdown complete")
+		return nil
+	case <-ctx.Done():
+		utils.LogError("CommentService shutdown timeout")
+		return ctx.Err()
+	}
 }

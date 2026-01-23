@@ -39,7 +39,9 @@
       "Bash(cmd.exe:*)",
       "Bash(git clone:*)",
       "Bash(git -c http.proxy= -c https.proxy= clone https://github.com/anthropics/skills.git .claude/skills-official)",
-      "Skill(frontend-design)"
+      "Skill(frontend-design)",
+      "Bash(go list:*)",
+      "Bash(find:*)"
     ]
   }
 }

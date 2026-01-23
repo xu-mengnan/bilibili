@@ -223,7 +223,7 @@ func (h *V2Handlers) AnalyzeStreamHandlerV2(c *gin.Context) {
 		commentsText := h.analysisService.FormatComments(task.Comments, req.CommentLimit)
 		prompt := h.analysisService.RenderTemplate(template, commentsText, task.VideoTitle, len(task.Comments))
 
-		_, err := h.analysisService.CallLLMStream(func(chunk string) {
+		_, err := h.analysisService.CallLLMStream(c.Request.Context(), func(chunk string) {
 			streamChan <- chunk
 		}, prompt)
 

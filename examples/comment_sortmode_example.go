@@ -1,8 +1,10 @@
+//go:build ignore
+// +build ignore
+
 package main
 
 import (
 	"bilibili/pkg/bilibili"
-	
 )
 
 func main() {

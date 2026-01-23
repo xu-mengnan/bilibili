@@ -313,8 +313,8 @@ func (h *AnalysisHandlers) AnalyzeStreamHandler(c *gin.Context) {
 		// 渲染 Prompt
 		prompt := h.analysisService.RenderTemplate(promptTemplate, commentsText, task.VideoTitle, len(task.Comments))
 
-		// 调用流式 LLM
-		_, err := h.analysisService.CallLLMStream(func(chunk string) {
+		// 调用流式 LLM，传递 context
+		_, err := h.analysisService.CallLLMStream(c.Request.Context(), func(chunk string) {
 			// 立即发送到 channel
 			streamChan <- chunk
 		}, prompt)

@@ -1,6 +1,7 @@
 package services
 
 import (
+	"context"
 	"fmt"
 	"os"
 	"path/filepath"
@@ -10,11 +11,15 @@ import (
 
 	"bilibili/pkg/bilibili"
 	"bilibili/pkg/file"
+	"bilibili/pkg/utils"
 	"github.com/google/uuid"
 )
 
 // ExportService 导出服务
 type ExportService struct {
+	ctx       context.Context
+	cancel    context.CancelFunc
+	wg        sync.WaitGroup
 	exportDir string
 	files     map[string]*ExportFile
 	mu        sync.RWMutex
@@ -30,19 +35,27 @@ type ExportFile struct {
 }
 
 // NewExportService 创建导出服务
-func NewExportService(exportDir string) *ExportService {
+func NewExportService(ctx context.Context, exportDir string) *ExportService {
+	serviceCtx, cancel := context.WithCancel(ctx)
+
 	// 确保导出目录存在
 	if err := os.MkdirAll(exportDir, 0755); err != nil {
 		fmt.Printf("Failed to create export directory: %v\n", err)
 	}
 
 	es := &ExportService{
+		ctx:       serviceCtx,
+		cancel:    cancel,
 		exportDir: exportDir,
 		files:     make(map[string]*ExportFile),
 	}
 
 	// 启动清理goroutine
-	go es.cleanupWorker()
+	es.wg.Add(1)
+	go func() {
+		defer es.wg.Done()
+		es.cleanupWorker()
+	}()
 
 	return es
 }
@@ -161,8 +174,14 @@ func (es *ExportService) cleanupWorker() {
 	ticker := time.NewTicker(1 * time.Hour)
 	defer ticker.Stop()
 
-	for range ticker.C {
-		es.CleanOldFiles()
+	for {
+		select {
+		case <-es.ctx.Done():
+			utils.LogInfo("cleanupWorker stopped in ExportService")
+			return
+		case <-ticker.C:
+			es.CleanOldFiles()
+		}
 	}
 }
 
@@ -179,5 +198,29 @@ func (es *ExportService) CleanOldFiles() {
 			// 删除记录
 			delete(es.files, fileID)
 		}
+	}
+}
+
+// Shutdown 优雅关闭服务
+func (es *ExportService) Shutdown(ctx context.Context) error {
+	utils.LogInfo("Shutting down ExportService...")
+
+	// 取消 context
+	es.cancel()
+
+	// 等待所有 goroutine 结束
+	done := make(chan struct{})
+	go func() {
+		es.wg.Wait()
+		close(done)
+	}()
+
+	select {
+	case <-done:
+		utils.LogInfo("ExportService shutdown complete")
+		return nil
+	case <-ctx.Done():
+		utils.LogError("ExportService shutdown timeout")
+		return ctx.Err()
 	}
 }

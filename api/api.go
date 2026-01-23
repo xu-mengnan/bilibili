@@ -1,6 +1,7 @@
 package api
 
 import (
+	"context"
 	"log"
 	"net/http"
 	"strconv"
@@ -9,14 +10,27 @@ import (
 
 	"bilibili/internal/config"
 	"bilibili/internal/handlers"
-	"bilibili/internal/services"
+	"bilibili/internal/handlers/middleware"
+	svc "bilibili/internal/services"
 	"bilibili/pkg/storage"
 	"bilibili/pkg/utils"
 )
 
+// Services 所有服务实例
+type Services struct {
+	CommentService  *svc.CommentService
+	ExportService   *svc.ExportService
+	AnalysisService *svc.AnalysisService
+}
+
 // SetupRoutes 设置路由
-func SetupRoutes() *gin.Engine {
-	r := gin.Default()
+func SetupRoutes(ctx context.Context) (*gin.Engine, *Services) {
+	r := gin.New() // 不使用默认中间件，手动注册
+
+	// 注册全局中间件
+	r.Use(middleware.Recovery()) // Panic 恢复
+	r.Use(middleware.Logging())  // 请求日志
+	r.Use(middleware.CORS())     // 跨域支持
 
 	// 加载配置
 	cfg, err := config.LoadDefault()
@@ -29,26 +43,37 @@ func SetupRoutes() *gin.Engine {
 	// 初始化存储层
 	taskStorage := storage.NewJSONStorage(cfg.Storage.DataDir)
 
-	commentService := services.NewCommentService(taskStorage)
-	videoService := services.NewVideoService()
-	exportService := services.NewExportService("./exports")
-	analysisService := services.NewAnalysisService(
+	// 初始化服务（传递 context）
+	commentService := svc.NewCommentService(ctx, taskStorage)
+	videoService := svc.NewVideoService()
+	exportService := svc.NewExportService(ctx, "./exports")
+	analysisService := svc.NewAnalysisService(
 		cfg.AI.APIURL,
 		cfg.AI.APIKey,
 		cfg.AI.Model,
 	)
+
+	services := &Services{
+		CommentService:  commentService,
+		ExportService:   exportService,
+		AnalysisService: analysisService,
+	}
 
 	// 初始化处理器
 	commentHandlers := handlers.NewCommentHandlers(commentService, exportService)
 	videoHandlers := handlers.NewVideoHandlers(videoService)
 	analysisHandlers := handlers.NewAnalysisHandlers(commentService, analysisService)
 	v2Handlers := handlers.NewV2Handlers(commentService, analysisService)
+	healthHandler := handlers.NewHealthHandler()
 
 	// 静态文件服务
 	r.Static("/static", "./static")
 	r.StaticFile("/", "./static/index.html")
 	r.StaticFile("/tasks", "./static/tasks.html")
 	r.StaticFile("/analysis", "./static/analysis.html")
+
+	// 健康检查
+	r.GET("/health", healthHandler.HealthCheck)
 
 	// 原有路由
 	r.GET("/hello", func(c *gin.Context) {
@@ -65,7 +90,7 @@ func SetupRoutes() *gin.Engine {
 		}
 
 		// 获取用户信息
-		user, err := services.GetUserByID(userID)
+		user, err := svc.GetUserByID(userID)
 		if err != nil {
 			utils.LogError("Failed to get user: " + err.Error())
 			c.JSON(http.StatusInternalServerError, gin.H{"error": "Internal Server Error"})
@@ -122,5 +147,22 @@ func SetupRoutes() *gin.Engine {
 		v2Group.POST("/preview", v2Handlers.PreviewPromptHandlerV2)
 	}
 
-	return r
+	return r, services
+}
+
+// ShutdownServices 关闭所有服务
+func ShutdownServices(ctx context.Context, services *Services) {
+	// 按照依赖顺序关闭服务
+
+	// 1. 关闭 ExportService
+	if err := services.ExportService.Shutdown(ctx); err != nil {
+		utils.LogError("Failed to shutdown ExportService: " + err.Error())
+	}
+
+	// 2. 关闭 CommentService
+	if err := services.CommentService.Shutdown(ctx); err != nil {
+		utils.LogError("Failed to shutdown CommentService: " + err.Error())
+	}
+
+	utils.LogInfo("All services shutdown complete")
 }
