@@ -8,19 +8,26 @@ type TaskIndex struct {
 	Tasks       []TaskMeta `json:"tasks"`
 }
 
+// TaskMeta contains all metadata required to restore a task without loading comments.
 type TaskMeta struct {
-	TaskID       string    `json:"task_id"`
-	VideoID      string    `json:"video_id"`
-	VideoTitle   string    `json:"video_title"`
-	Status       string    `json:"status"`
-	CommentCount int       `json:"comment_count"`
-	StartTime    time.Time `json:"start_time"`
-	EndTime      time.Time `json:"end_time"`
-	DataFile     string    `json:"data_file"`
-	Error        string    `json:"error,omitempty"`
+	TaskID         string    `json:"task_id"`
+	VideoID        string    `json:"video_id"`
+	VideoTitle     string    `json:"video_title"`
+	Status         string    `json:"status"`
+	CommentCount   int       `json:"comment_count"`
+	CurrentPage    int       `json:"current_page,omitempty"`
+	PageLimit      int       `json:"page_limit,omitempty"`
+	DelayMs        int       `json:"delay_ms,omitempty"`
+	SortMode       string    `json:"sort_mode,omitempty"`
+	IncludeReplies bool      `json:"include_replies,omitempty"`
+	AuthType       string    `json:"auth_type,omitempty"`
+	StartTime      time.Time `json:"start_time"`
+	EndTime        time.Time `json:"end_time"`
+	DataFile       string    `json:"data_file"`
+	Error          string    `json:"error,omitempty"`
 }
 
-// TaskData 只保存可持久化业务数据。认证凭据必须仅驻留内存。
+// TaskData only contains persistable business data. Credentials remain runtime-only.
 type TaskData struct {
 	TaskID         string            `json:"task_id"`
 	VideoID        string            `json:"video_id"`

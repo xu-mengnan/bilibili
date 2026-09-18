@@ -70,7 +70,7 @@ func (h *V2Handlers) GetTasksHandler(c *gin.Context) {
 func (h *V2Handlers) GetTaskHandler(c *gin.Context) {
 	taskID := c.Param("id")
 
-	task, err := h.commentService.GetTaskProgress(taskID)
+	task, err := h.commentService.GetTaskWithComments(taskID)
 	if err != nil {
 		c.JSON(http.StatusNotFound, gin.H{"error": "任务不存在"})
 		return
@@ -102,7 +102,12 @@ func (h *V2Handlers) GetTaskHandler(c *gin.Context) {
 		"video_id":      task.VideoID,
 		"video_title":   task.VideoTitle,
 		"status":        task.Status,
-		"comment_count": len(task.Comments),
+		"comment_count": func() int {
+			if task.Progress.TotalComments > 0 {
+				return task.Progress.TotalComments
+			}
+			return len(task.Comments)
+		}(),
 		"start_time":    task.StartTime.Format("2006-01-02 15:04:05"),
 		"end_time":      task.EndTime.Format("2006-01-02 15:04:05"),
 		"error":         task.Error,
@@ -167,7 +172,7 @@ func (h *V2Handlers) AnalyzeStreamHandlerV2(c *gin.Context) {
 	}
 
 	// 获取任务
-	task, err := h.commentService.GetTaskProgress(req.TaskID)
+	task, err := h.commentService.GetTaskWithComments(req.TaskID)
 	if err != nil {
 		c.JSON(http.StatusNotFound, gin.H{"error": "任务不存在"})
 		return
@@ -276,7 +281,7 @@ func (h *V2Handlers) PreviewPromptHandlerV2(c *gin.Context) {
 		return
 	}
 
-	task, err := h.commentService.GetTaskProgress(req.TaskID)
+	task, err := h.commentService.GetTaskWithComments(req.TaskID)
 	if err != nil {
 		c.JSON(http.StatusNotFound, gin.H{"error": "任务不存在"})
 		return

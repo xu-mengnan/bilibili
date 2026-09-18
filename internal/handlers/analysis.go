@@ -51,7 +51,7 @@ func (h *AnalysisHandlers) AnalyzeHandler(c *gin.Context) {
 	}
 
 	// 获取任务数据
-	task, err := h.commentService.GetTaskProgress(req.TaskID)
+	task, err := h.commentService.GetTaskWithComments(req.TaskID)
 	if err != nil {
 		c.JSON(http.StatusNotFound, gin.H{"error": "Task not found: " + err.Error()})
 		return
@@ -107,7 +107,7 @@ func (h *AnalysisHandlers) AnalyzeHandler(c *gin.Context) {
 func (h *AnalysisHandlers) GetCommentsForAnalysisHandler(c *gin.Context) {
 	taskID := c.Param("task_id")
 
-	task, err := h.commentService.GetTaskProgress(taskID)
+	task, err := h.commentService.GetTaskWithComments(taskID)
 	if err != nil {
 		c.JSON(http.StatusNotFound, gin.H{"error": err.Error()})
 		return
@@ -198,7 +198,7 @@ func (h *AnalysisHandlers) PreviewPromptHandler(c *gin.Context) {
 		return
 	}
 
-	task, err := h.commentService.GetTaskProgress(req.TaskID)
+	task, err := h.commentService.GetTaskWithComments(req.TaskID)
 	if err != nil {
 		c.JSON(http.StatusNotFound, gin.H{"error": "Task not found: " + err.Error()})
 		return
@@ -252,7 +252,7 @@ func (h *AnalysisHandlers) AnalyzeStreamHandler(c *gin.Context) {
 	}
 
 	// 获取任务数据
-	task, err := h.commentService.GetTaskProgress(req.TaskID)
+	task, err := h.commentService.GetTaskWithComments(req.TaskID)
 	if err != nil {
 		c.JSON(http.StatusNotFound, gin.H{"error": "Task not found: " + err.Error()})
 		return
