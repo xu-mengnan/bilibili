@@ -161,6 +161,26 @@ func (cs *CommentService) QueueStats() ScrapeQueueStats {
 	}
 }
 
+func (cs *CommentService) Ready() error {
+	if cs == nil {
+		return fmt.Errorf("comment service is nil")
+	}
+	if err := cs.ctx.Err(); err != nil {
+		return fmt.Errorf("comment service stopped: %w", err)
+	}
+	if cs.storage == nil {
+		return fmt.Errorf("task storage is nil")
+	}
+	if err := cs.storage.CheckReady(); err != nil {
+		return fmt.Errorf("task storage not ready: %w", err)
+	}
+	stats := cs.QueueStats()
+	if stats.Capacity > 0 && stats.Queued >= stats.Capacity {
+		return ErrScrapeQueueFull
+	}
+	return nil
+}
+
 // StartScrapeTask 启动爬取任务
 func (cs *CommentService) StartScrapeTask(videoID, authType, cookie, appKey, appSecret, sortMode string, includeReplies bool, pageLimit, delayMs int) (string, error) {
 	cs.enqueueMu.Lock()
