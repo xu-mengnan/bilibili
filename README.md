@@ -106,22 +106,31 @@ go run ./cmd/app
 - 支持复制和下载分析结果
 
 **配置智谱AI：**
-编辑 `configs/config.json` 文件：
-```json
-{
-  "ai": {
-    "api_url": "https://open.bigmodel.cn/api/paas/v4/chat/completions",
-    "api_key": "your-zhipu-api-key",
-    "model": "glm-4.7"
-  }
-}
+
+不要把 API Key 写入 Git 仓库。推荐通过环境变量注入：
+
+```bash
+# Linux / macOS
+export ZHIPU_API_KEY="your-zhipu-api-key"
+
+# 可选覆盖
+export ZHIPU_API_URL="https://open.bigmodel.cn/api/paas/v4/chat/completions"
+export ZHIPU_MODEL="glm-4-flash"
 ```
+
+Windows PowerShell：
+
+```powershell
+$env:ZHIPU_API_KEY="your-zhipu-api-key"
+```
+
+仓库中的 `configs/config.json` 只保存非敏感默认值；可参考 `.env.example` 和 `configs/config.example.json`。
 
 获取 API Key：
 1. 访问 [智谱AI开放平台](https://open.bigmodel.cn/)
 2. 注册并登录
 3. 在 API Keys 页面创建密钥
-4. 将密钥填入配置文件的 `api_key` 字段
+4. 将密钥放入本机环境变量或 Secret Manager，不要提交到 Git
 
 ### 示例
 
