@@ -52,12 +52,12 @@ class AnalysisPage {
         }
 
         container.innerHTML = this.templates.map(t => `
-            <div class="template-option ${this.selectedTemplateId === t.id ? 'selected' : ''}" data-id="${t.id}">
+            <div class="template-option ${this.selectedTemplateId === t.id ? 'selected' : ''}" data-id="${this.escapeHtml(t.id)}">
                 <div class="template-header">
-                    <input type="radio" name="template" value="${t.id}" ${this.selectedTemplateId === t.id ? 'checked' : ''}>
+                    <input type="radio" name="template" value="${this.escapeHtml(t.id)}" ${this.selectedTemplateId === t.id ? 'checked' : ''}>
                     <div class="template-info">
-                        <div class="template-name">${t.name}</div>
-                        <div class="template-description">${t.description}</div>
+                        <div class="template-name">${this.escapeHtml(t.name)}</div>
+                        <div class="template-description">${this.escapeHtml(t.description)}</div>
                     </div>
                 </div>
                 ${t.id === 'custom' ? `
