@@ -1,11 +1,11 @@
 package bilibili
 
 import (
+	"context"
 	"crypto/md5"
 	"encoding/hex"
 	"encoding/json"
-	"io"
-	"net/http"
+	"fmt"
 	"net/url"
 	"sort"
 	"strconv"
@@ -13,87 +13,100 @@ import (
 	"time"
 )
 
-// WBI密钥结构
 type WBIKey struct {
 	ImgKey string
 	SubKey string
 }
 
-// 默认WBI密钥（降级方案）
-var defaultWBIKey = WBIKey{
-	ImgKey: "6536ef935693ef639889778317a124ab", // 默认图片密钥
-	SubKey: "44aa19dd532868a0e7278589417478a8", // 默认子密钥
-}
-
-// NavResponse 用于解析获取WBI密钥的API响应
 type NavResponse struct {
-	Code int `json:"code"`
+	Code    int    `json:"code"`
+	Message string `json:"message"`
 	Data struct {
 		WbiImg struct {
-			ImgUrl string `json:"img_url"`
-			SubUrl string `json:"sub_url"`
+			ImgURL string `json:"img_url"`
+			SubURL string `json:"sub_url"`
 		} `json:"wbi_img"`
 	} `json:"data"`
 }
 
-// GetWBIKey 获取WBI密钥
-func GetWBIKey() WBIKey {
-	// 创建HTTP客户端
-	client := &http.Client{Timeout: 10 * time.Second}
+func GetWBIKey() (WBIKey, error) {
+	return GetWBIKeyContext(context.Background())
+}
 
-	// 创建请求
-	req, err := http.NewRequest("GET", "https://api.bilibili.com/x/web-interface/nav", nil)
-	if err != nil {
-		// 如果获取失败，使用默认密钥
-		return defaultWBIKey
+func GetWBIKeyContext(ctx context.Context) (WBIKey, error) {
+	return defaultBilibiliClient.getWBIKey(ctx)
+}
+
+func (c *BilibiliClient) getWBIKey(ctx context.Context) (WBIKey, error) {
+	if c == nil {
+		return WBIKey{}, fmt.Errorf("bilibili client is nil")
+	}
+	if c.wbiCache == nil {
+		c.wbiCache = &wbiCache{}
+	}
+	if c.wbiTTL <= 0 {
+		c.wbiTTL = 30 * time.Minute
 	}
 
-	// 设置请求头
-	req.Header.Set("User-Agent", "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/91.0.4472.124 Safari/537.36")
-	req.Header.Set("Referer", "https://www.bilibili.com/")
+	// This lock intentionally spans refresh so concurrent callers collapse into
+	// one /nav request instead of stampeding the upstream endpoint.
+	c.wbiCache.mu.Lock()
+	defer c.wbiCache.mu.Unlock()
 
-	// 发送请求
-	resp, err := client.Do(req)
-	if err != nil {
-		// 如果请求失败，使用默认密钥
-		return defaultWBIKey
-	}
-	defer resp.Body.Close()
-
-	// 读取响应
-	body, err := io.ReadAll(resp.Body)
-	if err != nil {
-		// 如果读取失败，使用默认密钥
-		return defaultWBIKey
+	if time.Now().Before(c.wbiCache.expires) {
+		if err := validateWBIKey(c.wbiCache.key); err == nil {
+			return c.wbiCache.key, nil
+		}
 	}
 
-	// 解析JSON
+	body, err := c.SendRequestContext(ctx, c.navURL)
+	if err != nil {
+		return WBIKey{}, fmt.Errorf("获取 WBI 密钥失败: %w", err)
+	}
+
 	var navResp NavResponse
-
-	if err := json.Unmarshal(body, &navResp); err != nil || navResp.Code != 0 {
-		// 如果解析失败或返回错误码，使用默认密钥
-		return defaultWBIKey
+	if err := json.Unmarshal(body, &navResp); err != nil {
+		return WBIKey{}, fmt.Errorf("解析 WBI 响应失败: %w", err)
+	}
+	if navResp.Code != 0 {
+		return WBIKey{}, fmt.Errorf("WBI API 返回错误，错误码: %d, 错误信息: %s", navResp.Code, navResp.Message)
 	}
 
-	// 提取密钥
-	imgKey := extractKeyFromURL(navResp.Data.WbiImg.ImgUrl)
-	subKey := extractKeyFromURL(navResp.Data.WbiImg.SubUrl)
-
-	return WBIKey{
-		ImgKey: imgKey,
-		SubKey: subKey,
+	key := WBIKey{
+		ImgKey: extractKeyFromURL(navResp.Data.WbiImg.ImgURL),
+		SubKey: extractKeyFromURL(navResp.Data.WbiImg.SubURL),
 	}
+	if err := validateWBIKey(key); err != nil {
+		return WBIKey{}, err
+	}
+
+	c.wbiCache.key = key
+	c.wbiCache.expires = time.Now().Add(c.wbiTTL)
+	return key, nil
 }
 
-// 从URL提取密钥
+func validateWBIKey(key WBIKey) error {
+	if len(key.ImgKey) < 32 || len(key.SubKey) < 32 {
+		return fmt.Errorf("invalid WBI key lengths: img=%d sub=%d", len(key.ImgKey), len(key.SubKey))
+	}
+	return nil
+}
+
 func extractKeyFromURL(urlStr string) string {
-	// 从URL中提取文件名（不含扩展名）
-	parts := strings.Split(urlStr, "/")
-	filename := parts[len(parts)-1]
-	return strings.Split(filename, ".")[0]
+	parsed, err := url.Parse(urlStr)
+	if err != nil {
+		return ""
+	}
+	filename := parsed.Path
+	if idx := strings.LastIndex(filename, "/"); idx >= 0 {
+		filename = filename[idx+1:]
+	}
+	if idx := strings.LastIndex(filename, "."); idx > 0 {
+		filename = filename[:idx]
+	}
+	return filename
 }
 
-// mixinKeyEncTab 是WBI签名算法中使用的固定表
 var mixinKeyEncTab = []int{
 	46, 47, 18, 2, 53, 8, 23, 32, 15, 50, 10, 31, 58, 3, 45, 35, 27, 43, 5, 49,
 	33, 9, 42, 19, 29, 28, 14, 39, 12, 38, 41, 13, 37, 48, 7, 16, 24, 55, 40,
@@ -101,65 +114,70 @@ var mixinKeyEncTab = []int{
 	36, 20, 34, 44, 52,
 }
 
-// getMixinKey 从原始密钥生成混合密钥
-func getMixinKey(orig string) string {
-	var str strings.Builder
-	for _, v := range mixinKeyEncTab {
-		if v < len(orig) {
-			str.WriteByte(orig[v])
+func getMixinKey(orig string) (string, error) {
+	var builder strings.Builder
+	for _, index := range mixinKeyEncTab {
+		if index >= len(orig) {
+			return "", fmt.Errorf("WBI key material too short: need index %d, length %d", index, len(orig))
 		}
+		builder.WriteByte(orig[index])
 	}
-	return str.String()[:32]
+	mixed := builder.String()
+	if len(mixed) < 32 {
+		return "", fmt.Errorf("WBI mixin key too short: %d", len(mixed))
+	}
+	return mixed[:32], nil
 }
 
-// SignParams 对参数进行WBI签名
-func SignParams(params url.Values, wbiKey WBIKey) url.Values {
-	// 复制参数，避免修改原始参数
-	signedParams := url.Values{}
-	for k, v := range params {
-		signedParams[k] = v
+func SignParams(params url.Values, wbiKey WBIKey) (url.Values, error) {
+	if err := validateWBIKey(wbiKey); err != nil {
+		return nil, err
 	}
 
-	// 添加wts参数（当前时间戳）
-	wts := strconv.FormatInt(time.Now().Unix(), 10)
-	signedParams.Set("wts", wts)
+	signedParams := url.Values{}
+	for key, values := range params {
+		signedParams[key] = append([]string(nil), values...)
+	}
+	signedParams.Set("wts", strconv.FormatInt(time.Now().Unix(), 10))
 
-	// 对参数按键名排序
 	keys := make([]string, 0, len(signedParams))
-	for k := range signedParams {
-		keys = append(keys, k)
+	for key := range signedParams {
+		keys = append(keys, key)
 	}
 	sort.Strings(keys)
 
-	// 构造查询字符串，并过滤特殊字符
 	var query strings.Builder
-	for _, k := range keys {
+	for _, key := range keys {
 		if query.Len() > 0 {
 			query.WriteByte('&')
 		}
+		value := signedParams.Get(key)
+		value = strings.NewReplacer(
+			"!", "",
+			"'", "",
+			"(", "",
+			")", "",
+			"*", "",
+		).Replace(value)
 
-		// 过滤掉特殊字符 !'()*
-		value := signedParams.Get(k)
-		value = strings.ReplaceAll(value, "!", "")
-		value = strings.ReplaceAll(value, "'", "")
-		value = strings.ReplaceAll(value, "(", "")
-		value = strings.ReplaceAll(value, ")", "")
-		value = strings.ReplaceAll(value, "*", "")
-
-		query.WriteString(k)
+		query.WriteString(key)
 		query.WriteByte('=')
 		query.WriteString(value)
 	}
 
-	// 生成混合密钥
-	mixinKey := getMixinKey(wbiKey.ImgKey + wbiKey.SubKey)
-
-	// 计算w_rid
+	mixinKey, err := getMixinKey(wbiKey.ImgKey + wbiKey.SubKey)
+	if err != nil {
+		return nil, err
+	}
 	hash := md5.Sum([]byte(query.String() + mixinKey))
-	w_rid := hex.EncodeToString(hash[:])
+	signedParams.Set("w_rid", hex.EncodeToString(hash[:]))
+	return signedParams, nil
+}
 
-	// 添加w_rid参数
-	signedParams.Set("w_rid", w_rid)
-
-	return signedParams
+func (c *BilibiliClient) signParams(ctx context.Context, params url.Values) (url.Values, error) {
+	key, err := c.getWBIKey(ctx)
+	if err != nil {
+		return nil, err
+	}
+	return SignParams(params, key)
 }
