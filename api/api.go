@@ -36,8 +36,8 @@ func SetupRoutes(ctx context.Context) (*gin.Engine, *Services) {
 	// 加载配置
 	cfg, err := config.LoadDefault()
 	if err != nil {
-		log.Printf("警告: 加载配置文件失败: %v，使用默认配置", err)
-		cfg, _ = config.LoadDefault()
+		log.Printf("警告: 加载配置文件失败: %v，使用安全默认配置", err)
+		cfg = config.Default()
 	}
 
 	// 初始化服务
