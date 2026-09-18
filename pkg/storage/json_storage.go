@@ -161,15 +161,30 @@ func (js *JSONStorage) CleanOldTasks(beforeTime time.Time) error {
 	}
 
 	kept := make([]TaskMeta, 0, len(index.Tasks))
-	changed := false
+	toDelete := make([]TaskMeta, 0)
 
 	for _, task := range index.Tasks {
 		expired := !task.EndTime.IsZero() && task.EndTime.Before(beforeTime)
-		if !expired && task.Status != "failed" {
+		if expired || task.Status == "failed" {
+			toDelete = append(toDelete, task)
+		} else {
 			kept = append(kept, task)
-			continue
 		}
+	}
+	if len(toDelete) == 0 {
+		return nil
+	}
 
+	// 先原子更新索引，再删除数据文件。删除失败最多留下孤儿文件，
+	// 不会产生“索引仍引用已删除文件”的破坏性状态。
+	index.Tasks = kept
+	index.Version = "1.1"
+	index.LastUpdated = time.Now()
+	if err := js.writeJSONAtomicallyLocked(js.getIndexFilePath(), index); err != nil {
+		return err
+	}
+
+	for _, task := range toDelete {
 		taskFile := js.getTaskFilePath(task.TaskID)
 		if _, statErr := os.Stat(taskFile); statErr == nil {
 			if err := js.backupFileLocked(taskFile); err != nil {
@@ -181,17 +196,9 @@ func (js *JSONStorage) CleanOldTasks(beforeTime time.Time) error {
 		} else if !os.IsNotExist(statErr) {
 			return fmt.Errorf("检查旧任务 %s 失败: %w", task.TaskID, statErr)
 		}
-		changed = true
 	}
 
-	if !changed {
-		return nil
-	}
-
-	index.Tasks = kept
-	index.Version = "1.1"
-	index.LastUpdated = time.Now()
-	return js.writeJSONAtomicallyLocked(js.getIndexFilePath(), index)
+	return nil
 }
 
 func (js *JSONStorage) writeJSONAtomicallyLocked(target string, value interface{}) error {
