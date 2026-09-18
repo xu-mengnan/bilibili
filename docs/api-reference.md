@@ -472,47 +472,44 @@ curl http://localhost:8080/user/123
 
 ## 错误响应
 
-所有API端点在出错时返回统一的错误格式。
+所有 JSON API 的同步错误响应使用统一结构：
 
-**错误响应格式**:
 ```json
 {
-  "error": "错误信息描述"
+  "code": "BAD_REQUEST",
+  "message": "请求参数错误",
+  "request_id": "4b07a0f2-..."
 }
 ```
 
-**HTTP状态码**:
+字段说明：
 
-| 状态码 | 说明 |
-|--------|------|
-| 200 OK | 请求成功 |
-| 400 Bad Request | 请求参数错误或无效 |
-| 404 Not Found | 资源不存在（任务ID、文件ID等） |
-| 500 Internal Server Error | 服务器内部错误 |
+- `code`：稳定的机器可读错误码。
+- `message`：面向调用方的错误描述。
+- `details`：可选的非敏感补充信息。
+- `request_id`：请求关联 ID，可用于定位服务端日志；也会通过 `X-Request-ID` 响应头返回。
 
-**常见错误示例**:
+主要错误码：
 
-```json
-// 无效的排序模式
-{
-  "error": "Invalid sort_mode: must be 'time' or 'hot'"
-}
+| HTTP | code | 含义 |
+|---|---|---|
+| 400 | `BAD_REQUEST` | 请求参数无效 |
+| 404 | `NOT_FOUND` / `TASK_NOT_FOUND` | 资源或任务不存在 |
+| 409 | `TASK_INVALID_STATE` | 任务当前状态不允许该操作 |
+| 503 | `SERVICE_UNAVAILABLE` | 队列已满或服务暂时未就绪 |
+| 500 | `INTERNAL_SERVER_ERROR` | 服务内部错误 |
 
-// 任务不存在
-{
-  "error": "task not found"
-}
+服务端内部错误不会把底层异常细节直接返回给客户端；请使用 `request_id` 对照结构化日志排查。
 
-// 任务未完成
-{
-  "error": "Task not completed yet"
-}
+### API 版本迁移
 
-// 参数验证失败
-{
-  "error": "Invalid request: Key: 'ScrapeRequest.VideoID' Error:Field validation for 'VideoID' failed on the 'required' tag"
-}
-```
+`/api/v2` 是新的任务/分析资源契约。已有等价 v2 端点的旧接口仍保持可用，但会返回：
+
+- `Deprecation: true`
+- `Warning: 299 - "Deprecated API; migrate to the v2 endpoint"`
+- `Link: <...>; rel="successor-version"`
+
+当前已标记迁移的旧接口包括任务列表、分析模板、流式分析、已完成任务列表和 Prompt 预览。没有等价 v2 能力的旧接口暂不标记弃用。
 
 ---
 

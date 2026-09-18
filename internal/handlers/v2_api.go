@@ -72,7 +72,7 @@ func (h *V2Handlers) GetTaskHandler(c *gin.Context) {
 
 	task, err := h.commentService.GetTaskWithComments(taskID)
 	if err != nil {
-		c.JSON(http.StatusNotFound, gin.H{"error": "任务不存在"})
+		RespondTaskNotFound(c, "任务不存在")
 		return
 	}
 
@@ -167,24 +167,24 @@ func (h *V2Handlers) AnalyzeStreamHandlerV2(c *gin.Context) {
 	}
 
 	if err := c.ShouldBindJSON(&req); err != nil {
-		c.JSON(http.StatusBadRequest, gin.H{"error": "请求参数错误: " + err.Error()})
+		RespondBadRequest(c, "请求参数错误: "+err.Error())
 		return
 	}
 
 	// 获取任务
 	task, err := h.commentService.GetTaskWithComments(req.TaskID)
 	if err != nil {
-		c.JSON(http.StatusNotFound, gin.H{"error": "任务不存在"})
+		RespondTaskNotFound(c, "任务不存在")
 		return
 	}
 
 	if task.Status != "completed" {
-		c.JSON(http.StatusBadRequest, gin.H{"error": "任务尚未完成"})
+		RespondTaskInvalidState(c, "任务尚未完成")
 		return
 	}
 
 	if len(task.Comments) == 0 {
-		c.JSON(http.StatusBadRequest, gin.H{"error": "没有可分析的评论"})
+		RespondBadRequest(c, "没有可分析的评论")
 		return
 	}
 
@@ -195,14 +195,14 @@ func (h *V2Handlers) AnalyzeStreamHandlerV2(c *gin.Context) {
 	} else {
 		t := h.analysisService.GetTemplateByID(req.TemplateID)
 		if t == nil {
-			c.JSON(http.StatusBadRequest, gin.H{"error": "模板不存在"})
+			RespondBadRequest(c, "模板不存在")
 			return
 		}
 		template = t.Prompt
 	}
 
 	if template == "" {
-		c.JSON(http.StatusBadRequest, gin.H{"error": "请选择模板或输入自定义Prompt"})
+		RespondBadRequest(c, "请选择模板或输入自定义Prompt")
 		return
 	}
 
@@ -216,7 +216,7 @@ func (h *V2Handlers) AnalyzeStreamHandlerV2(c *gin.Context) {
 
 	flusher, ok := c.Writer.(http.Flusher)
 	if !ok {
-		c.JSON(http.StatusInternalServerError, gin.H{"error": "流式传输不支持"})
+		RespondInternalError(c, "流式传输不支持", nil)
 		return
 	}
 
@@ -264,13 +264,13 @@ func (h *V2Handlers) PreviewPromptHandlerV2(c *gin.Context) {
 	}
 
 	if err := c.ShouldBindJSON(&req); err != nil {
-		c.JSON(http.StatusBadRequest, gin.H{"error": "请求参数错误"})
+		RespondBadRequest(c, "请求参数错误")
 		return
 	}
 
 	task, err := h.commentService.GetTaskWithComments(req.TaskID)
 	if err != nil {
-		c.JSON(http.StatusNotFound, gin.H{"error": "任务不存在"})
+		RespondTaskNotFound(c, "任务不存在")
 		return
 	}
 
@@ -284,7 +284,7 @@ func (h *V2Handlers) PreviewPromptHandlerV2(c *gin.Context) {
 	} else {
 		t := h.analysisService.GetTemplateByID(req.TemplateID)
 		if t == nil {
-			c.JSON(http.StatusBadRequest, gin.H{"error": "模板不存在"})
+			RespondBadRequest(c, "模板不存在")
 			return
 		}
 		template = *t

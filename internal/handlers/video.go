@@ -28,13 +28,13 @@ type VideoInfoRequest struct {
 func (h *VideoHandlers) GetVideoInfoHandler(c *gin.Context) {
 	var req VideoInfoRequest
 	if err := c.ShouldBindJSON(&req); err != nil {
-		c.JSON(http.StatusBadRequest, gin.H{"error": "Invalid request: " + err.Error()})
+		RespondBadRequest(c, "Invalid request: "+err.Error())
 		return
 	}
 
 	videoInfo, err := h.videoService.GetVideoInfoContext(c.Request.Context(), req.VideoURLOrID)
 	if err != nil {
-		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
+		RespondBadRequest(c, err.Error())
 		return
 	}
 

@@ -47,24 +47,24 @@ type AnalyzeRequest struct {
 func (h *AnalysisHandlers) AnalyzeHandler(c *gin.Context) {
 	var req AnalyzeRequest
 	if err := c.ShouldBindJSON(&req); err != nil {
-		c.JSON(http.StatusBadRequest, gin.H{"error": "Invalid request: " + err.Error()})
+		RespondBadRequest(c, "Invalid request: "+err.Error())
 		return
 	}
 
 	// 获取任务数据
 	task, err := h.commentService.GetTaskWithComments(req.TaskID)
 	if err != nil {
-		c.JSON(http.StatusNotFound, gin.H{"error": "Task not found: " + err.Error()})
+		RespondTaskNotFound(c, "Task not found: "+err.Error())
 		return
 	}
 
 	if task.Status != "completed" {
-		c.JSON(http.StatusBadRequest, gin.H{"error": "Task is not completed yet"})
+		RespondTaskInvalidState(c, "Task is not completed yet")
 		return
 	}
 
 	if len(task.Comments) == 0 {
-		c.JSON(http.StatusBadRequest, gin.H{"error": "No comments to analyze"})
+		RespondBadRequest(c, "No comments to analyze")
 		return
 	}
 
@@ -75,7 +75,7 @@ func (h *AnalysisHandlers) AnalyzeHandler(c *gin.Context) {
 	} else if req.TemplateID != "" {
 		t := h.analysisService.GetTemplateByID(req.TemplateID)
 		if t == nil {
-			c.JSON(http.StatusBadRequest, gin.H{"error": "Template not found"})
+			RespondBadRequest(c, "Template not found")
 			return
 		}
 		template = t.Prompt
@@ -93,7 +93,7 @@ func (h *AnalysisHandlers) AnalyzeHandler(c *gin.Context) {
 	// 执行分析
 	result, err := h.analysisService.AnalyzeComments(analysisReq)
 	if err != nil {
-		c.JSON(http.StatusInternalServerError, gin.H{"error": "Analysis failed: " + err.Error()})
+		RespondInternalError(c, "Analysis failed", err)
 		return
 	}
 
@@ -110,7 +110,7 @@ func (h *AnalysisHandlers) GetCommentsForAnalysisHandler(c *gin.Context) {
 
 	task, err := h.commentService.GetTaskWithComments(taskID)
 	if err != nil {
-		c.JSON(http.StatusNotFound, gin.H{"error": err.Error()})
+		RespondTaskNotFound(c, err.Error())
 		return
 	}
 
@@ -195,19 +195,19 @@ func (h *AnalysisHandlers) PreviewPromptHandler(c *gin.Context) {
 	}
 
 	if err := c.ShouldBindJSON(&req); err != nil {
-		c.JSON(http.StatusBadRequest, gin.H{"error": "Invalid request: " + err.Error()})
+		RespondBadRequest(c, "Invalid request: "+err.Error())
 		return
 	}
 
 	task, err := h.commentService.GetTaskWithComments(req.TaskID)
 	if err != nil {
-		c.JSON(http.StatusNotFound, gin.H{"error": "Task not found: " + err.Error()})
+		RespondTaskNotFound(c, "Task not found: "+err.Error())
 		return
 	}
 
 	template := h.analysisService.GetTemplateByID(req.TemplateID)
 	if template == nil {
-		c.JSON(http.StatusNotFound, gin.H{"error": "Template not found"})
+		RespondNotFound(c, "Template not found")
 		return
 	}
 
@@ -248,24 +248,24 @@ func (h *AnalysisHandlers) renderPrompt(template services.PromptTemplate, commen
 func (h *AnalysisHandlers) AnalyzeStreamHandler(c *gin.Context) {
 	var req AnalyzeRequest
 	if err := c.ShouldBindJSON(&req); err != nil {
-		c.JSON(http.StatusBadRequest, gin.H{"error": "Invalid request: " + err.Error()})
+		RespondBadRequest(c, "Invalid request: "+err.Error())
 		return
 	}
 
 	// 获取任务数据
 	task, err := h.commentService.GetTaskWithComments(req.TaskID)
 	if err != nil {
-		c.JSON(http.StatusNotFound, gin.H{"error": "Task not found: " + err.Error()})
+		RespondTaskNotFound(c, "Task not found: "+err.Error())
 		return
 	}
 
 	if task.Status != "completed" {
-		c.JSON(http.StatusBadRequest, gin.H{"error": "Task is not completed yet"})
+		RespondTaskInvalidState(c, "Task is not completed yet")
 		return
 	}
 
 	if len(task.Comments) == 0 {
-		c.JSON(http.StatusBadRequest, gin.H{"error": "No comments to analyze"})
+		RespondBadRequest(c, "No comments to analyze")
 		return
 	}
 
@@ -276,7 +276,7 @@ func (h *AnalysisHandlers) AnalyzeStreamHandler(c *gin.Context) {
 	} else if req.TemplateID != "" {
 		t := h.analysisService.GetTemplateByID(req.TemplateID)
 		if t == nil {
-			c.JSON(http.StatusBadRequest, gin.H{"error": "Template not found"})
+			RespondBadRequest(c, "Template not found")
 			return
 		}
 		template = t.Prompt
@@ -296,7 +296,7 @@ func (h *AnalysisHandlers) AnalyzeStreamHandler(c *gin.Context) {
 
 	flusher, ok := c.Writer.(http.Flusher)
 	if !ok {
-		c.JSON(http.StatusInternalServerError, gin.H{"error": "Streaming not supported"})
+		RespondInternalError(c, "Streaming not supported", nil)
 		return
 	}
 
