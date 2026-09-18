@@ -108,7 +108,7 @@ static/css/analysis.css            # 分析页面样式
 {
   "ai": {
     "api_url": "https://open.bigmodel.cn/api/paas/v4/chat/completions",
-    "api_key": "your-zhipu-api-key",
+    "api_key": "",
     "model": "glm-4.7"
   }
 }
@@ -118,7 +118,7 @@ static/css/analysis.css            # 分析页面样式
 1. 访问 [智谱AI开放平台](https://open.bigmodel.cn/)
 2. 注册并登录账户
 3. 在 API Keys 管理页面创建 API Key
-4. 将密钥填入配置文件的 `api_key` 字段
+4. 将密钥通过 `ZHIPU_API_KEY` 环境变量注入，不要提交到 Git
 
 ### 数据结构
 
