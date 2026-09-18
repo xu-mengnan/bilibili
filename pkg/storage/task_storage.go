@@ -28,4 +28,7 @@ type TaskStorage interface {
 
 	// Initialize 初始化存储（创建目录结构等）
 	Initialize() error
+
+	// CheckReady 验证存储目录当前可读写。
+	CheckReady() error
 }
