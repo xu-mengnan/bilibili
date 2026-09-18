@@ -92,9 +92,9 @@ const App = {
                 if (progress.status === 'completed') {
                     clearInterval(this.progressInterval);
                     this.onScrapeCompleted();
-                } else if (progress.status === 'failed') {
+                } else if (progress.status === 'failed' || progress.status === 'cancelled') {
                     clearInterval(this.progressInterval);
-                    this.showError(progress.error || '爬取失败');
+                    this.showError(progress.error || (progress.status === 'cancelled' ? '任务已取消' : '爬取失败'));
                     this.resetStartButton();
                 }
             } catch (error) {
@@ -117,7 +117,9 @@ const App = {
         document.getElementById('progress-fill').style.width = percent + '%';
 
         document.getElementById('progress-text').textContent =
-            `正在爬取第 ${progress.progress.current_page}/${progress.progress.page_limit} 页...`;
+            progress.status === 'queued'
+                ? '任务排队中...'
+                : `正在爬取第 ${progress.progress.current_page}/${progress.progress.page_limit} 页...`;
 
         document.getElementById('current-page').textContent = progress.progress.current_page;
         document.getElementById('total-comments').textContent = progress.progress.total_comments;
