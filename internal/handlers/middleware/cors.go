@@ -1,19 +1,39 @@
 package middleware
 
 import (
+	"net/http"
+	"net/url"
+	"strings"
+
 	"github.com/gin-gonic/gin"
 )
 
-// CORS 支持跨域请求的中间件
+// CORS 默认只允许同源浏览器请求。
+// 本项目自带前端与 API 同源，因此不需要开放通配跨域。
 func CORS() gin.HandlerFunc {
 	return func(c *gin.Context) {
-		c.Writer.Header().Set("Access-Control-Allow-Origin", "*")
-		c.Writer.Header().Set("Access-Control-Allow-Methods", "GET, POST, PUT, DELETE, OPTIONS")
-		c.Writer.Header().Set("Access-Control-Allow-Headers", "Content-Type, Authorization")
-		c.Writer.Header().Set("Access-Control-Max-Age", "86400")
+		origin := strings.TrimSpace(c.GetHeader("Origin"))
+		if origin == "" {
+			c.Next()
+			return
+		}
 
-		if c.Request.Method == "OPTIONS" {
-			c.AbortWithStatus(204)
+		parsed, err := url.Parse(origin)
+		if err != nil || parsed.Host == "" || !strings.EqualFold(parsed.Host, c.Request.Host) {
+			c.AbortWithStatusJSON(http.StatusForbidden, gin.H{
+				"error": "cross-origin request rejected",
+			})
+			return
+		}
+
+		c.Writer.Header().Set("Vary", "Origin")
+		c.Writer.Header().Set("Access-Control-Allow-Origin", origin)
+		c.Writer.Header().Set("Access-Control-Allow-Methods", "GET, POST, OPTIONS")
+		c.Writer.Header().Set("Access-Control-Allow-Headers", "Content-Type, Authorization")
+		c.Writer.Header().Set("Access-Control-Max-Age", "600")
+
+		if c.Request.Method == http.MethodOptions {
+			c.AbortWithStatus(http.StatusNoContent)
 			return
 		}
 

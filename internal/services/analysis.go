@@ -447,7 +447,7 @@ func (s *AnalysisService) getMockResponse(prompt string) string {
 该视频获得了用户的积极反馈，整体评价良好。建议继续保持当前的创作风格，同时可以考虑增加更多互动环节。
 
 ---
-*以上为模拟分析结果。要获取真实的AI分析，请在` + "`" + `configs/config.json` + "`" + `中配置` + "`" + `api_key` + "`" + `字段。*`
+*以上为模拟分析结果。要获取真实的AI分析，请通过` + "`" + `ZHIPU_API_KEY` + "`" + `环境变量配置密钥，不要将密钥提交到 Git。*`
 }
 
 // ChunkCallback 流式输出回调函数类型

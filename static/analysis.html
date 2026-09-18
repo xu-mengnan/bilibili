@@ -6,26 +6,9 @@
     <title>AI 评论分析 - Bilibili Tool</title>
     <link rel="stylesheet" href="/static/css/style.css">
     <link rel="stylesheet" href="/static/css/analysis.css">
-    <!-- markdown-it -->
-    <script src="https://cdn.jsdelivr.net/npm/markdown-it@14.0.0/dist/markdown-it.min.js"
-            onerror="this.onerror=null; this.src='https://cdn.bootcdn.net/ajax/libs/markdown-it/14.0.0/markdown-it.min.js'"></script>
-    <script>
-        window.mdParser = null;
-        if (typeof markdownit === 'undefined') {
-            console.error('markdown-it 未能加载');
-            window.mdParser = {
-                render: function(text) {
-                    return text.replace(/\n/g, '<br>')
-                        .replace(/\*\*(.*?)\*\*/g, '<strong>$1</strong>')
-                        .replace(/^### (.*$)/gm, '<h3>$1</h3>')
-                        .replace(/^## (.*$)/gm, '<h2>$1</h2>')
-                        .replace(/^# (.*$)/gm, '<h1>$1</h1>');
-                }
-            };
-        } else {
-            window.mdParser = markdownit({ html: true, breaks: true, linkify: true });
-        }
-    </script>
+    <!-- markdown-it: raw HTML is intentionally disabled by /static/js/markdown-init.js -->
+    <script src="https://cdn.jsdelivr.net/npm/markdown-it@14.0.0/dist/markdown-it.min.js"></script>
+    <script src="/static/js/markdown-init.js"></script>
 </head>
 <body>
     <div class="app">

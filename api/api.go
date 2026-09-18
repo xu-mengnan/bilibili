@@ -28,15 +28,16 @@ func SetupRoutes(ctx context.Context) (*gin.Engine, *Services) {
 	r := gin.New() // 不使用默认中间件，手动注册
 
 	// 注册全局中间件
-	r.Use(middleware.Recovery()) // Panic 恢复
-	r.Use(middleware.Logging())  // 请求日志
-	r.Use(middleware.CORS())     // 跨域支持
+	r.Use(middleware.Recovery())        // Panic 恢复
+	r.Use(middleware.Logging())         // 请求日志
+	r.Use(middleware.SecurityHeaders()) // 浏览器安全头
+	r.Use(middleware.CORS())            // 仅允许同源请求
 
 	// 加载配置
 	cfg, err := config.LoadDefault()
 	if err != nil {
-		log.Printf("警告: 加载配置文件失败: %v，使用默认配置", err)
-		cfg, _ = config.LoadDefault()
+		log.Printf("警告: 加载配置文件失败: %v，使用安全默认配置", err)
+		cfg = config.Default()
 	}
 
 	// 初始化服务

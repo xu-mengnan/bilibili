@@ -130,7 +130,7 @@ class TasksPage {
                             <rect x="2" y="7" width="20" height="14" rx="2" ry="2"/>
                             <path d="M16 21V5a2 2 0 0 0-2-2h-4a2 2 0 0 0-2 2v16"/>
                         </svg>
-                        <span>${task.video_id || '-'}</span>
+                        <span>${this.escapeHtml(task.video_id || '-')}</span>
                     </div>
                     <div class="task-meta-item">
                         <svg xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
@@ -215,7 +215,7 @@ class TasksPage {
                         </div>
                         <div class="detail-item">
                             <div class="detail-label">视频ID</div>
-                            <div class="detail-value">${task.video_id || '-'}</div>
+                            <div class="detail-value">${this.escapeHtml(task.video_id || '-')}</div>
                         </div>
                         <div class="detail-item">
                             <div class="detail-label">任务ID</div>

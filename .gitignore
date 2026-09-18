@@ -30,8 +30,11 @@ data/tasks/.backup/
 go.work
 go.work.sum
 
-# env file
+# Environment / local secrets
 .env
+.env.*
+!.env.example
+configs/config.local.json
 
 # Editor/IDE
 # .idea/

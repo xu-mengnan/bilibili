@@ -5,7 +5,9 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"regexp"
 	"strconv"
+	"strings"
 	"sync"
 	"time"
 
@@ -15,7 +17,6 @@ import (
 	"github.com/google/uuid"
 )
 
-// ExportService 导出服务
 type ExportService struct {
 	ctx       context.Context
 	cancel    context.CancelFunc
@@ -25,7 +26,6 @@ type ExportService struct {
 	mu        sync.RWMutex
 }
 
-// ExportFile 导出文件信息
 type ExportFile struct {
 	FileID    string
 	Filename  string
@@ -34,13 +34,11 @@ type ExportFile struct {
 	CreatedAt time.Time
 }
 
-// NewExportService 创建导出服务
 func NewExportService(ctx context.Context, exportDir string) *ExportService {
 	serviceCtx, cancel := context.WithCancel(ctx)
 
-	// 确保导出目录存在
 	if err := os.MkdirAll(exportDir, 0755); err != nil {
-		fmt.Printf("Failed to create export directory: %v\n", err)
+		utils.LogError("Failed to create export directory: " + err.Error())
 	}
 
 	es := &ExportService{
@@ -50,7 +48,6 @@ func NewExportService(ctx context.Context, exportDir string) *ExportService {
 		files:     make(map[string]*ExportFile),
 	}
 
-	// 启动清理goroutine
 	es.wg.Add(1)
 	go func() {
 		defer es.wg.Done()
@@ -60,46 +57,78 @@ func NewExportService(ctx context.Context, exportDir string) *ExportService {
 	return es
 }
 
-// ExportComments 导出评论
+var exportBasenamePattern = regexp.MustCompile(`^[\p{L}\p{N}._ -]+$`)
+
+func normalizeExportFormat(format string) (string, error) {
+	switch strings.ToLower(strings.TrimSpace(format)) {
+	case "excel", "xlsx":
+		return "xlsx", nil
+	case "csv":
+		return "csv", nil
+	default:
+		return "", fmt.Errorf("unsupported format: %s", format)
+	}
+}
+
+func validateExportBasename(name string) (string, error) {
+	name = strings.TrimSpace(name)
+	if name == "" {
+		return "comments", nil
+	}
+	if filepath.IsAbs(name) || filepath.Base(name) != name ||
+		strings.ContainsAny(name, "/\\") || strings.Contains(name, "..") {
+		return "", fmt.Errorf("invalid export filename")
+	}
+	if len([]rune(name)) > 80 {
+		return "", fmt.Errorf("export filename is too long")
+	}
+	if !exportBasenamePattern.MatchString(name) {
+		return "", fmt.Errorf("export filename contains unsupported characters")
+	}
+	return name, nil
+}
+
 func (es *ExportService) ExportComments(comments []bilibili.CommentData, format, customFilename string) (*ExportFile, error) {
 	fileID := uuid.New().String()
 
-	// 生成文件名
-	timestamp := time.Now().Format("2006-01-02_15-04-05")
-	var filename string
-	if customFilename != "" {
-		filename = fmt.Sprintf("%s_%s.%s", customFilename, timestamp, format)
-	} else {
-		filename = fmt.Sprintf("comments_%s.%s", timestamp, format)
+	normalizedFormat, err := normalizeExportFormat(format)
+	if err != nil {
+		return nil, err
+	}
+	baseName, err := validateExportBasename(customFilename)
+	if err != nil {
+		return nil, err
 	}
 
-	filePath := filepath.Join(es.exportDir, filename)
+	timestamp := time.Now().Format("2006-01-02_15-04-05")
+	filename := fmt.Sprintf("%s_%s.%s", baseName, timestamp, normalizedFormat)
 
-	// 准备数据
+	absDir, err := filepath.Abs(es.exportDir)
+	if err != nil {
+		return nil, fmt.Errorf("resolve export directory: %w", err)
+	}
+	filePath := filepath.Join(absDir, filename)
+	relPath, err := filepath.Rel(absDir, filePath)
+	if err != nil || relPath == ".." || strings.HasPrefix(relPath, ".."+string(os.PathSeparator)) {
+		return nil, fmt.Errorf("export path escapes export directory")
+	}
+
 	rows := es.PrepareCommentRows(comments)
-
-	// 根据格式导出
-	var err error
-	switch format {
-	case "excel", "xlsx":
+	switch normalizedFormat {
+	case "xlsx":
 		err = file.WriteExcel(rows, filePath)
-		format = "xlsx"
 	case "csv":
 		err = file.WriteCSV(rows, filePath)
-	default:
-		return nil, fmt.Errorf("unsupported format: %s", format)
 	}
-
 	if err != nil {
-		return nil, fmt.Errorf("failed to export: %v", err)
+		return nil, fmt.Errorf("failed to export: %w", err)
 	}
 
-	// 保存文件信息
 	exportFile := &ExportFile{
 		FileID:    fileID,
 		Filename:  filename,
 		FilePath:  filePath,
-		Format:    format,
+		Format:    normalizedFormat,
 		CreatedAt: time.Now(),
 	}
 
@@ -110,7 +139,6 @@ func (es *ExportService) ExportComments(comments []bilibili.CommentData, format,
 	return exportFile, nil
 }
 
-// GetExportFile 获取导出文件信息
 func (es *ExportService) GetExportFile(fileID string) (*ExportFile, error) {
 	es.mu.RLock()
 	defer es.mu.RUnlock()
@@ -123,27 +151,20 @@ func (es *ExportService) GetExportFile(fileID string) (*ExportFile, error) {
 	return exportFile, nil
 }
 
-// PrepareCommentRows 准备评论数据行（包含子评论）
 func (es *ExportService) PrepareCommentRows(comments []bilibili.CommentData) [][]string {
-	// 表头
 	rows := [][]string{
 		{"层级", "评论ID", "用户ID", "用户名", "等级", "评论内容", "点赞数", "评论时间"},
 	}
 
-	// 递归添加评论数据
 	for _, comment := range comments {
 		es.addCommentRow(&rows, comment, 0)
 	}
-
 	return rows
 }
 
-// addCommentRow 递归添加评论行
 func (es *ExportService) addCommentRow(rows *[][]string, comment bilibili.CommentData, level int) {
-	// 格式化时间
 	timeStr := time.Unix(int64(comment.Ctime), 0).Format("2006-01-02 15:04:05")
 
-	// 层级标识
 	levelStr := "主评论"
 	if level > 0 {
 		levelStr = fmt.Sprintf("└ 回复 (L%d)", level)
@@ -161,15 +182,11 @@ func (es *ExportService) addCommentRow(rows *[][]string, comment bilibili.Commen
 	}
 	*rows = append(*rows, row)
 
-	// 递归处理子评论
-	if len(comment.Replies) > 0 {
-		for _, reply := range comment.Replies {
-			es.addCommentRow(rows, reply, level+1)
-		}
+	for _, reply := range comment.Replies {
+		es.addCommentRow(rows, reply, level+1)
 	}
 }
 
-// cleanupWorker 定期清理旧文件（2小时前）
 func (es *ExportService) cleanupWorker() {
 	ticker := time.NewTicker(1 * time.Hour)
 	defer ticker.Stop()
@@ -185,7 +202,6 @@ func (es *ExportService) cleanupWorker() {
 	}
 }
 
-// CleanOldFiles 清理旧文件
 func (es *ExportService) CleanOldFiles() {
 	es.mu.Lock()
 	defer es.mu.Unlock()
@@ -193,22 +209,18 @@ func (es *ExportService) CleanOldFiles() {
 	cutoff := time.Now().Add(-2 * time.Hour)
 	for fileID, exportFile := range es.files {
 		if exportFile.CreatedAt.Before(cutoff) {
-			// 删除文件
-			os.Remove(exportFile.FilePath)
-			// 删除记录
+			if err := os.Remove(exportFile.FilePath); err != nil && !os.IsNotExist(err) {
+				utils.LogError("Failed to remove old export file: " + err.Error())
+			}
 			delete(es.files, fileID)
 		}
 	}
 }
 
-// Shutdown 优雅关闭服务
 func (es *ExportService) Shutdown(ctx context.Context) error {
 	utils.LogInfo("Shutting down ExportService...")
-
-	// 取消 context
 	es.cancel()
 
-	// 等待所有 goroutine 结束
 	done := make(chan struct{})
 	go func() {
 		es.wg.Wait()

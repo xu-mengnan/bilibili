@@ -115,7 +115,7 @@ bilibili.GetComments(oid, 1, 20, 0,
 
 **AI 分析配置文件** (`configs/config.json`)
 - `ai.api_url` - 大模型 API 地址，默认：智谱AI `https://open.bigmodel.cn/api/paas/v4/chat/completions`
-- `ai.api_key` - API 密钥，留空则使用模拟响应
+- `ai.api_key` - 仅保留兼容字段；真实密钥请通过 `ZHIPU_API_KEY` 环境变量注入，禁止提交到 Git
 - `ai.model` - 模型名称，默认：`glm-4.7`
 
 **Prompt 模板变量**
