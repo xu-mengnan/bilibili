@@ -87,7 +87,11 @@ func TestGetAllCommentsAdvancesCursorAndDeduplicates(t *testing.T) {
 	if len(seen) != 3 {
 		t.Fatalf("expected 3 page requests, got %d", len(seen))
 	}
-	if !strings.Contains(seen[0], `"data":{}`) {
+	var initial map[string]string
+	if err := json.Unmarshal([]byte(seen[0]), &initial); err != nil {
+		t.Fatalf("decode first pagination state: %v", err)
+	}
+	if !strings.Contains(initial["offset"], `"data":{}`) {
 		t.Fatalf("first page did not use initial pagination state: %q", seen[0])
 	}
 	if seen[1] != `{"offset":"page2"}` {
