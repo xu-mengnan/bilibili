@@ -297,7 +297,7 @@ func (h *CommentHandlers) DownloadFileHandler(c *gin.Context) {
 func (h *CommentHandlers) GetCommentsStatsHandler(c *gin.Context) {
 	taskID := c.Param("task_id")
 
-	task, err := h.commentService.GetTaskProgress(taskID)
+	task, err := h.commentService.GetTaskWithComments(taskID)
 	if err != nil {
 		c.JSON(http.StatusNotFound, gin.H{"error": err.Error()})
 		return
