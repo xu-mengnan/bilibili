@@ -234,13 +234,13 @@ func (cs *CommentService) executeScrapingTask(taskID string) {
 		return
 	}
 
-	videoResp, err := bilibili.GetVideoByBVID(taskConfig.VideoID)
+	videoResp, err := bilibili.GetVideoByBVIDContext(cs.ctx, taskConfig.VideoID)
 	if err != nil {
-		cs.updateTaskError(taskID, fmt.Sprintf("failed to get video info: %v", err))
-		return
-	}
-	if videoResp.Code != 0 {
-		cs.updateTaskError(taskID, fmt.Sprintf("video API error: %s", videoResp.Message))
+		if cs.ctx.Err() != nil {
+			cs.cancelTask(taskID, "Task cancelled by shutdown")
+		} else {
+			cs.updateTaskError(taskID, fmt.Sprintf("failed to get video info: %v", err))
+		}
 		return
 	}
 
@@ -266,59 +266,46 @@ func (cs *CommentService) executeScrapingTask(taskID string) {
 	}
 
 	oid := videoResp.Data.AID
-	pageSize := 20
-	nextCursor := 0
-	nextOffset := ""
+	paginator := bilibili.NewCommentPaginator(oid, 20, taskConfig.PageLimit, opts...)
 	commentMap := make(map[int64]bilibili.CommentData)
 
-	for page := 1; page <= taskConfig.PageLimit; page++ {
-		select {
-		case <-cs.ctx.Done():
-			utils.LogInfo("Scraping task cancelled: " + taskID)
-			cs.mu.Lock()
-			if task := cs.tasks[taskID]; task != nil {
-				task.Status = "cancelled"
-				task.Error = "Task cancelled by shutdown"
-				task.EndTime = time.Now()
-			}
-			cs.mu.Unlock()
-			if err := cs.persistTaskByID(taskID); err != nil {
-				utils.LogError("持久化已取消任务失败: " + err.Error())
-			}
-			return
-		default:
-		}
-
-		var commentsResp *bilibili.CommentResponse
-		var err error
-		if nextOffset != "" {
-			commentsResp, err = bilibili.GetCommentsWithOffset(oid, page, pageSize, nextCursor, nextOffset, opts...)
-		} else {
-			commentsResp, err = bilibili.GetComments(oid, page, pageSize, nextCursor, opts...)
-		}
+	for !paginator.Done() {
+		commentsResp, err := paginator.Next(cs.ctx)
 		if err != nil {
-			cs.updateTaskError(taskID, fmt.Sprintf("failed to get comments on page %d: %v", page, err))
+			if cs.ctx.Err() != nil {
+				cs.cancelTask(taskID, "Task cancelled by shutdown")
+			} else {
+				cs.updateTaskError(taskID, fmt.Sprintf("failed to get comments on page %d: %v", paginator.Page()+1, err))
+			}
 			return
 		}
-		if commentsResp.Code != 0 {
-			cs.updateTaskError(taskID, fmt.Sprintf("comment API error on page %d: %s", page, commentsResp.Message))
-			return
-		}
+		page := paginator.Page()
 
 		for _, comment := range commentsResp.Data.Replies {
 			if taskConfig.IncludeReplies && comment.RCount > 0 {
+				timer := time.NewTimer(200 * time.Millisecond)
 				select {
-				case <-time.After(200 * time.Millisecond):
+				case <-timer.C:
 				case <-cs.ctx.Done():
-					cs.updateTaskError(taskID, "Task cancelled by shutdown")
+					if !timer.Stop() {
+						select {
+						case <-timer.C:
+						default:
+						}
+					}
+					cs.cancelTask(taskID, "Task cancelled by shutdown")
 					return
 				}
-				subComments, err := bilibili.GetSubComments(oid, comment.RPID, opts...)
+
+				subComments, err := bilibili.GetSubCommentsContext(cs.ctx, oid, comment.RPID, opts...)
 				if err == nil && len(subComments) > 0 {
 					if len(subComments) > 3 {
 						subComments = subComments[:3]
 					}
 					comment.Replies = subComments
+				} else if cs.ctx.Err() != nil {
+					cs.cancelTask(taskID, "Task cancelled by shutdown")
+					return
 				}
 			}
 			commentMap[comment.RPID] = comment
@@ -331,17 +318,21 @@ func (cs *CommentService) executeScrapingTask(taskID string) {
 		}
 		cs.mu.Unlock()
 
-		if commentsResp.Data.Cursor.Next == 0 && commentsResp.Data.Cursor.PaginationReply.NextOffset == "" {
+		if paginator.Done() {
 			break
 		}
-		nextCursor = commentsResp.Data.Cursor.Next
-		nextOffset = commentsResp.Data.Cursor.PaginationReply.NextOffset
-
-		if taskConfig.DelayMs > 0 && page < taskConfig.PageLimit {
+		if taskConfig.DelayMs > 0 {
+			timer := time.NewTimer(time.Duration(taskConfig.DelayMs) * time.Millisecond)
 			select {
-			case <-time.After(time.Duration(taskConfig.DelayMs) * time.Millisecond):
+			case <-timer.C:
 			case <-cs.ctx.Done():
-				cs.updateTaskError(taskID, "Task cancelled by shutdown")
+				if !timer.Stop() {
+					select {
+					case <-timer.C:
+					default:
+					}
+				}
+				cs.cancelTask(taskID, "Task cancelled by shutdown")
 				return
 			}
 		}
@@ -363,7 +354,6 @@ func (cs *CommentService) executeScrapingTask(taskID string) {
 	}
 	cs.mu.Unlock()
 
-	// 只有持久化成功后才释放评论内存；失败时保留数据以便重试/人工恢复。
 	if err := cs.persistTaskByID(taskID); err != nil {
 		utils.LogError("持久化完成任务失败: " + err.Error())
 		cs.mu.Lock()
@@ -380,6 +370,23 @@ func (cs *CommentService) executeScrapingTask(taskID string) {
 		task.CommentsLoaded = false
 	}
 	cs.mu.Unlock()
+}
+
+func (cs *CommentService) cancelTask(taskID, message string) {
+	cs.mu.Lock()
+	task := cs.tasks[taskID]
+	if task != nil {
+		task.Status = "cancelled"
+		task.Error = message
+		task.EndTime = time.Now()
+	}
+	cs.mu.Unlock()
+
+	if task != nil {
+		if err := cs.persistTaskByID(taskID); err != nil {
+			utils.LogError("持久化已取消任务失败: " + err.Error())
+		}
+	}
 }
 
 // updateTaskError 更新任务错误状态
