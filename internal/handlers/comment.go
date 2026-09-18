@@ -52,12 +52,12 @@ type ScrapeResponse struct {
 func (h *CommentHandlers) ScrapeCommentsHandler(c *gin.Context) {
 	var req ScrapeRequest
 	if err := c.ShouldBindJSON(&req); err != nil {
-		c.JSON(http.StatusBadRequest, gin.H{"error": "Invalid request: " + err.Error()})
+		RespondBadRequest(c, "Invalid request: "+err.Error())
 		return
 	}
 
 	if err := validateAndNormalizeScrapeRequest(&req); err != nil {
-		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
+		RespondBadRequest(c, err.Error())
 		return
 	}
 
@@ -75,12 +75,10 @@ func (h *CommentHandlers) ScrapeCommentsHandler(c *gin.Context) {
 	if err != nil {
 		if errors.Is(err, services.ErrScrapeQueueFull) {
 			c.Header("Retry-After", "2")
-			c.JSON(http.StatusServiceUnavailable, gin.H{
-				"error": "scrape queue is full, please retry later",
-			})
+			RespondServiceUnavailable(c, "scrape queue is full, please retry later")
 			return
 		}
-		c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to start scraping: " + err.Error()})
+		RespondInternalError(c, "Failed to start scraping", err)
 		return
 	}
 
@@ -171,7 +169,7 @@ func (h *CommentHandlers) GetProgressHandler(c *gin.Context) {
 
 	task, err := h.commentService.GetTaskProgress(taskID)
 	if err != nil {
-		c.JSON(http.StatusNotFound, gin.H{"error": err.Error()})
+		RespondTaskNotFound(c, err.Error())
 		return
 	}
 
@@ -259,7 +257,7 @@ func (h *CommentHandlers) GetResultHandler(c *gin.Context) {
 
 	comments, totalCount, err := h.commentService.GetTaskResult(taskID, sortBy, keyword, limit)
 	if err != nil {
-		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
+		RespondBadRequest(c, err.Error())
 		return
 	}
 
@@ -296,7 +294,7 @@ type ExportResponse struct {
 func (h *CommentHandlers) ExportCommentsHandler(c *gin.Context) {
 	var req ExportRequest
 	if err := c.ShouldBindJSON(&req); err != nil {
-		c.JSON(http.StatusBadRequest, gin.H{"error": "Invalid request: " + err.Error()})
+		RespondBadRequest(c, "Invalid request: "+err.Error())
 		return
 	}
 
@@ -308,14 +306,14 @@ func (h *CommentHandlers) ExportCommentsHandler(c *gin.Context) {
 
 	comments, _, err := h.commentService.GetTaskResult(req.TaskID, sortBy, "", 0)
 	if err != nil {
-		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
+		RespondBadRequest(c, err.Error())
 		return
 	}
 
 	// 导出
 	exportFile, err := h.exportService.ExportComments(comments, req.Format, req.Filename)
 	if err != nil {
-		c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to export: " + err.Error()})
+		RespondInternalError(c, "Failed to export comments", err)
 		return
 	}
 
@@ -333,7 +331,7 @@ func (h *CommentHandlers) DownloadFileHandler(c *gin.Context) {
 
 	exportFile, err := h.exportService.GetExportFile(fileID)
 	if err != nil {
-		c.JSON(http.StatusNotFound, gin.H{"error": err.Error()})
+		RespondTaskNotFound(c, err.Error())
 		return
 	}
 
@@ -346,12 +344,12 @@ func (h *CommentHandlers) GetCommentsStatsHandler(c *gin.Context) {
 
 	task, err := h.commentService.GetTaskWithComments(taskID)
 	if err != nil {
-		c.JSON(http.StatusNotFound, gin.H{"error": err.Error()})
+		RespondTaskNotFound(c, err.Error())
 		return
 	}
 
 	if task.Status != "completed" {
-		c.JSON(http.StatusBadRequest, gin.H{"error": "Task not completed yet"})
+		RespondTaskInvalidState(c, "Task not completed yet")
 		return
 	}
 
