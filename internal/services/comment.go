@@ -22,7 +22,6 @@ type CommentService struct {
 	tasks   map[string]*ScrapeTask
 	mu      sync.RWMutex
 	storage storage.TaskStorage // 存储层
-	dirty   map[string]bool     // 脏标记：记录需要持久化的任务
 }
 
 // ScrapeTask 爬取任务
@@ -44,6 +43,7 @@ type ScrapeTask struct {
 	DelayMs        int
 	SortMode       string // "time" 按时间, "hot" 按热度
 	IncludeReplies bool   // 是否包含子评论
+	CommentsLoaded bool   // 评论是否已加载到内存，仅运行时使用
 }
 
 // TaskProgress 任务进度
@@ -62,23 +62,15 @@ func NewCommentService(ctx context.Context, storage storage.TaskStorage) *Commen
 		cancel:  cancel,
 		tasks:   make(map[string]*ScrapeTask),
 		storage: storage,
-		dirty:   make(map[string]bool),
 	}
 
-	// 初始化存储
-	storage.Initialize()
+	if err := storage.Initialize(); err != nil {
+		utils.LogError("初始化任务存储失败: " + err.Error())
+	}
 
-	// 启动时从存储加载任务
 	cs.loadTasksFromStorage()
 
-	// 启动持久化goroutine
-	cs.wg.Add(1)
-	go func() {
-		defer cs.wg.Done()
-		cs.persistWorker()
-	}()
-
-	// 启动清理goroutine
+	// 仅保留清理 goroutine；持久化在状态转换点同步完成，避免未跟踪 save goroutine。
 	cs.wg.Add(1)
 	go func() {
 		defer cs.wg.Done()
@@ -91,8 +83,6 @@ func NewCommentService(ctx context.Context, storage storage.TaskStorage) *Commen
 // StartScrapeTask 启动爬取任务
 func (cs *CommentService) StartScrapeTask(videoID, authType, cookie, appKey, appSecret, sortMode string, includeReplies bool, pageLimit, delayMs int) (string, error) {
 	taskID := uuid.New().String()
-
-	// 设置默认排序模式
 	if sortMode == "" {
 		sortMode = "time"
 	}
@@ -102,6 +92,7 @@ func (cs *CommentService) StartScrapeTask(videoID, authType, cookie, appKey, app
 		VideoID:        videoID,
 		Status:         "running",
 		Comments:       []bilibili.CommentData{},
+		CommentsLoaded: true,
 		Progress:       TaskProgress{CurrentPage: 0, TotalComments: 0, PageLimit: pageLimit},
 		StartTime:      time.Now(),
 		AuthType:       authType,
@@ -118,10 +109,14 @@ func (cs *CommentService) StartScrapeTask(videoID, authType, cookie, appKey, app
 	cs.tasks[taskID] = task
 	cs.mu.Unlock()
 
-	// 立即持久化新任务
-	go cs.saveTask(task)
+	// 先持久化已接受的任务，再启动后台工作，避免“已返回 task_id 但任务尚未落盘”。
+	if err := cs.persistTaskByID(taskID); err != nil {
+		cs.mu.Lock()
+		delete(cs.tasks, taskID)
+		cs.mu.Unlock()
+		return "", fmt.Errorf("failed to persist new task: %w", err)
+	}
 
-	// 在后台执行爬取
 	cs.wg.Add(1)
 	go func() {
 		defer cs.wg.Done()
@@ -131,311 +126,277 @@ func (cs *CommentService) StartScrapeTask(videoID, authType, cookie, appKey, app
 	return taskID, nil
 }
 
-// GetTaskProgress 获取任务进度
+// GetTaskProgress 返回只读元数据快照，不隐式加载大块评论数据。
 func (cs *CommentService) GetTaskProgress(taskID string) (*ScrapeTask, error) {
-	// 先尝试从内存获取
-	cs.mu.RLock()
-	task, exists := cs.tasks[taskID]
-	cs.mu.RUnlock()
-
-	// 如果任务不存在，尝试从存储加载
-	if !exists {
-		// 从索引加载任务元数据
-		index, err := cs.storage.LoadIndex()
-		if err != nil {
-			return nil, fmt.Errorf("failed to load index: %w", err)
-		}
-
-		var foundMeta *storage.TaskMeta
-		for i := range index.Tasks {
-			if index.Tasks[i].TaskID == taskID {
-				foundMeta = &index.Tasks[i]
-				break
-			}
-		}
-
-		if foundMeta == nil {
-			return nil, fmt.Errorf("task not found: %s", taskID)
-		}
-
-		// 构建任务对象（不含评论数据，懒加载）
-		task = &ScrapeTask{
-			TaskID:     foundMeta.TaskID,
-			VideoID:    foundMeta.VideoID,
-			VideoTitle: foundMeta.VideoTitle,
-			Status:     foundMeta.Status,
-			Comments:   nil, // 懒加载
-			Progress: TaskProgress{
-				TotalComments: foundMeta.CommentCount,
-				PageLimit:     2, // 默认值
-			},
-			StartTime: foundMeta.StartTime,
-			EndTime:   foundMeta.EndTime,
-			Error:     foundMeta.Error,
-		}
-
-		// 将任务添加到内存中
-		cs.mu.Lock()
-		cs.tasks[taskID] = task
-		cs.mu.Unlock()
-
-		return task, nil
+	if err := cs.ensureTaskLoaded(taskID); err != nil {
+		return nil, err
 	}
 
-	// 对于 completed 状态的任务，检查评论数据
-	if task.Status == "completed" && (task.Comments == nil || len(task.Comments) == 0) {
-		// 需要加载评论数据，直接从存储加载，不持有锁
-		taskData, err := cs.storage.LoadTask(taskID)
-		if err != nil {
-			return nil, fmt.Errorf("failed to load task comments: %w", err)
-		}
-
-		comments := cs.convertFromStorageFormat(taskData.Comments)
-
-		// 获取锁并更新（双重检查）
-		cs.mu.Lock()
-		task = cs.tasks[taskID] // 重新获取（可能已被删除或加载）
-		if task != nil && (task.Comments == nil || len(task.Comments) == 0) {
-			task.Comments = comments
-			task.Progress.TotalComments = len(comments)
-		}
-		cs.mu.Unlock()
-
-		return task, nil
-	}
-
-	return task, nil
-}
-
-// GetAllTasks 获取所有任务（按开始时间降序排序，最新的在前）
-func (cs *CommentService) GetAllTasks() []*ScrapeTask {
 	cs.mu.RLock()
 	defer cs.mu.RUnlock()
 
-	tasks := make([]*ScrapeTask, 0, len(cs.tasks))
-	for _, task := range cs.tasks {
-		tasks = append(tasks, task)
+	task := cs.tasks[taskID]
+	if task == nil {
+		return nil, fmt.Errorf("task not found: %s", taskID)
+	}
+	return cloneTaskLocked(task, false), nil
+}
+
+// GetTaskWithComments 返回包含评论的只读快照。
+// 评论缺失时会在不持有 service 锁的情况下从存储懒加载。
+func (cs *CommentService) GetTaskWithComments(taskID string) (*ScrapeTask, error) {
+	if err := cs.ensureTaskLoaded(taskID); err != nil {
+		return nil, err
 	}
 
-	// 按开始时间降序排序（最新的在前）
+	cs.mu.RLock()
+	task := cs.tasks[taskID]
+	if task == nil {
+		cs.mu.RUnlock()
+		return nil, fmt.Errorf("task not found: %s", taskID)
+	}
+	if task.CommentsLoaded || task.Status != "completed" {
+		snapshot := cloneTaskLocked(task, true)
+		cs.mu.RUnlock()
+		return snapshot, nil
+	}
+	cs.mu.RUnlock()
+
+	taskData, err := cs.storage.LoadTask(taskID)
+	if err != nil {
+		return nil, fmt.Errorf("failed to load task comments: %w", err)
+	}
+	comments := cs.convertFromStorageFormat(taskData.Comments)
+
+	cs.mu.Lock()
+	task = cs.tasks[taskID]
+	if task == nil {
+		cs.mu.Unlock()
+		return nil, fmt.Errorf("task not found: %s", taskID)
+	}
+	if !task.CommentsLoaded {
+		task.Comments = comments
+		task.CommentsLoaded = true
+		if task.Progress.TotalComments == 0 {
+			task.Progress.TotalComments = len(comments)
+		}
+	}
+	snapshot := cloneTaskLocked(task, true)
+	cs.mu.Unlock()
+	return snapshot, nil
+}
+
+// GetAllTasks 返回按开始时间降序排列的元数据快照。
+func (cs *CommentService) GetAllTasks() []*ScrapeTask {
+	cs.mu.RLock()
+	tasks := make([]*ScrapeTask, 0, len(cs.tasks))
+	for _, task := range cs.tasks {
+		tasks = append(tasks, cloneTaskLocked(task, false))
+	}
+	cs.mu.RUnlock()
+
 	sort.Slice(tasks, func(i, j int) bool {
 		return tasks[i].StartTime.After(tasks[j].StartTime)
 	})
-
 	return tasks
 }
 
-// GetTaskResult 获取任务结果（带筛选排序）
+// GetTaskResult 获取任务结果（带筛选排序）。
 func (cs *CommentService) GetTaskResult(taskID, sortBy, keyword string, limit int) ([]bilibili.CommentData, int, error) {
-	cs.mu.RLock()
-	task, exists := cs.tasks[taskID]
-	cs.mu.RUnlock()
-
-	if !exists {
-		return nil, 0, fmt.Errorf("task not found: %s", taskID)
+	task, err := cs.GetTaskWithComments(taskID)
+	if err != nil {
+		return nil, 0, err
 	}
-
 	if task.Status != "completed" {
 		return nil, 0, fmt.Errorf("task not completed yet")
 	}
 
-	// 懒加载：如果评论数据未加载，从存储加载
-	if task.Comments == nil || len(task.Comments) == 0 {
-		cs.mu.Lock()
-		cs.loadTaskComments(task)
-		cs.mu.Unlock()
-	}
-
-	// 复制评论数据，避免修改原始数据
-	comments := make([]bilibili.CommentData, len(task.Comments))
-	copy(comments, task.Comments)
-
-	// 筛选
+	comments := cloneComments(task.Comments)
 	if keyword != "" {
 		comments = cs.FilterComments(comments, keyword)
 	}
-
 	totalCount := len(comments)
-
-	// 排序
 	if sortBy != "" {
 		cs.SortComments(comments, sortBy)
 	}
-
-	// 限制数量
 	if limit > 0 && limit < len(comments) {
 		comments = comments[:limit]
 	}
-
 	return comments, totalCount, nil
 }
 
 // executeScrapingTask 执行爬取任务（后台goroutine）
 func (cs *CommentService) executeScrapingTask(taskID string) {
 	cs.mu.RLock()
-	task := cs.tasks[taskID]
+	taskConfig := cloneTaskLocked(cs.tasks[taskID], false)
 	cs.mu.RUnlock()
-
-	if task == nil {
+	if taskConfig == nil {
 		return
 	}
 
-	// 首先获取视频信息
-	videoResp, err := bilibili.GetVideoByBVID(task.VideoID)
+	videoResp, err := bilibili.GetVideoByBVID(taskConfig.VideoID)
 	if err != nil {
 		cs.updateTaskError(taskID, fmt.Sprintf("failed to get video info: %v", err))
 		return
 	}
-
 	if videoResp.Code != 0 {
 		cs.updateTaskError(taskID, fmt.Sprintf("video API error: %s", videoResp.Message))
 		return
 	}
 
-	// 更新视频标题
 	cs.mu.Lock()
-	task.VideoTitle = videoResp.Data.Title
+	if task := cs.tasks[taskID]; task != nil {
+		task.VideoTitle = videoResp.Data.Title
+	}
 	cs.mu.Unlock()
 
-	// 准备认证选项
 	var opts []bilibili.CommentOption
-	switch task.AuthType {
+	switch taskConfig.AuthType {
 	case "cookie":
-		if task.Cookie != "" {
-			opts = append(opts, bilibili.WithCookie(task.Cookie))
+		if taskConfig.Cookie != "" {
+			opts = append(opts, bilibili.WithCookie(taskConfig.Cookie))
 		}
 	case "app":
-		if task.AppKey != "" && task.AppSecret != "" {
-			opts = append(opts, bilibili.WithAppAuth(task.AppKey, task.AppSecret))
+		if taskConfig.AppKey != "" && taskConfig.AppSecret != "" {
+			opts = append(opts, bilibili.WithAppAuth(taskConfig.AppKey, taskConfig.AppSecret))
 		}
 	}
-
-	// 添加排序模式选项
-	if task.SortMode != "" {
-		opts = append(opts, bilibili.WithSortMode(task.SortMode))
+	if taskConfig.SortMode != "" {
+		opts = append(opts, bilibili.WithSortMode(taskConfig.SortMode))
 	}
 
-	// 爬取评论
 	oid := videoResp.Data.AID
 	pageSize := 20
 	nextCursor := 0
 	nextOffset := ""
-	commentMap := make(map[int64]bilibili.CommentData) // 用于去重
+	commentMap := make(map[int64]bilibili.CommentData)
 
-	for page := 1; page <= task.PageLimit; page++ {
-		// 检查是否被取消
+	for page := 1; page <= taskConfig.PageLimit; page++ {
 		select {
 		case <-cs.ctx.Done():
 			utils.LogInfo("Scraping task cancelled: " + taskID)
 			cs.mu.Lock()
-			task.Status = "cancelled"
-			task.Error = "Task cancelled by shutdown"
-			task.EndTime = time.Now()
+			if task := cs.tasks[taskID]; task != nil {
+				task.Status = "cancelled"
+				task.Error = "Task cancelled by shutdown"
+				task.EndTime = time.Now()
+			}
 			cs.mu.Unlock()
+			if err := cs.persistTaskByID(taskID); err != nil {
+				utils.LogError("持久化已取消任务失败: " + err.Error())
+			}
 			return
 		default:
 		}
 
-		// 获取评论
 		var commentsResp *bilibili.CommentResponse
 		var err error
-
 		if nextOffset != "" {
 			commentsResp, err = bilibili.GetCommentsWithOffset(oid, page, pageSize, nextCursor, nextOffset, opts...)
 		} else {
 			commentsResp, err = bilibili.GetComments(oid, page, pageSize, nextCursor, opts...)
 		}
-
 		if err != nil {
 			cs.updateTaskError(taskID, fmt.Sprintf("failed to get comments on page %d: %v", page, err))
 			return
 		}
-
 		if commentsResp.Code != 0 {
 			cs.updateTaskError(taskID, fmt.Sprintf("comment API error on page %d: %s", page, commentsResp.Message))
 			return
 		}
 
-		// 添加评论（去重）
-		if commentsResp.Data.Replies != nil {
-			for _, comment := range commentsResp.Data.Replies {
-				// 如果需要获取子评论
-				if task.IncludeReplies && comment.RCount > 0 {
-					// 添加延迟避免请求过快
-					time.Sleep(200 * time.Millisecond)
-
-					// 获取前3条子评论
-					subComments, err := bilibili.GetSubComments(oid, comment.RPID, opts...)
-					if err == nil && len(subComments) > 0 {
-						// 只取前3条
-						if len(subComments) > 3 {
-							subComments = subComments[:3]
-						}
-						comment.Replies = subComments
-					}
+		for _, comment := range commentsResp.Data.Replies {
+			if taskConfig.IncludeReplies && comment.RCount > 0 {
+				select {
+				case <-time.After(200 * time.Millisecond):
+				case <-cs.ctx.Done():
+					cs.updateTaskError(taskID, "Task cancelled by shutdown")
+					return
 				}
-				commentMap[comment.RPID] = comment
+				subComments, err := bilibili.GetSubComments(oid, comment.RPID, opts...)
+				if err == nil && len(subComments) > 0 {
+					if len(subComments) > 3 {
+						subComments = subComments[:3]
+					}
+					comment.Replies = subComments
+				}
 			}
+			commentMap[comment.RPID] = comment
 		}
 
-		// 更新进度
 		cs.mu.Lock()
-		task.Progress.CurrentPage = page
-		task.Progress.TotalComments = len(commentMap)
+		if task := cs.tasks[taskID]; task != nil {
+			task.Progress.CurrentPage = page
+			task.Progress.TotalComments = len(commentMap)
+		}
 		cs.mu.Unlock()
 
-		// 检查是否有更多评论
 		if commentsResp.Data.Cursor.Next == 0 && commentsResp.Data.Cursor.PaginationReply.NextOffset == "" {
 			break
 		}
-
-		// 更新游标
 		nextCursor = commentsResp.Data.Cursor.Next
 		nextOffset = commentsResp.Data.Cursor.PaginationReply.NextOffset
 
-		// 延迟下次请求
-		if task.DelayMs > 0 && page < task.PageLimit {
-			time.Sleep(time.Duration(task.DelayMs) * time.Millisecond)
+		if taskConfig.DelayMs > 0 && page < taskConfig.PageLimit {
+			select {
+			case <-time.After(time.Duration(taskConfig.DelayMs) * time.Millisecond):
+			case <-cs.ctx.Done():
+				cs.updateTaskError(taskID, "Task cancelled by shutdown")
+				return
+			}
 		}
 	}
 
-	// 将map转为slice
 	comments := make([]bilibili.CommentData, 0, len(commentMap))
 	for _, comment := range commentMap {
 		comments = append(comments, comment)
 	}
 
-	// 标记任务完成
 	cs.mu.Lock()
-	task.Status = "completed"
-	task.Comments = comments // 临时保存，用于持久化
-	task.Progress.TotalComments = len(comments)
-	task.EndTime = time.Now()
+	if task := cs.tasks[taskID]; task != nil {
+		task.Status = "completed"
+		task.Comments = comments
+		task.CommentsLoaded = true
+		task.Progress.TotalComments = len(comments)
+		task.EndTime = time.Now()
+		task.Error = ""
+	}
 	cs.mu.Unlock()
 
-	// 立即持久化完成的任务
-	cs.saveTask(task)
+	// 只有持久化成功后才释放评论内存；失败时保留数据以便重试/人工恢复。
+	if err := cs.persistTaskByID(taskID); err != nil {
+		utils.LogError("持久化完成任务失败: " + err.Error())
+		cs.mu.Lock()
+		if task := cs.tasks[taskID]; task != nil {
+			task.Error = "persistence failed: " + err.Error()
+		}
+		cs.mu.Unlock()
+		return
+	}
 
-	// 持久化后释放内存（懒加载）
 	cs.mu.Lock()
-	task.Comments = nil
+	if task := cs.tasks[taskID]; task != nil && task.Status == "completed" {
+		task.Comments = nil
+		task.CommentsLoaded = false
+	}
 	cs.mu.Unlock()
 }
 
 // updateTaskError 更新任务错误状态
 func (cs *CommentService) updateTaskError(taskID, errMsg string) {
 	cs.mu.Lock()
-	defer cs.mu.Unlock()
-
-	if task, exists := cs.tasks[taskID]; exists {
+	task := cs.tasks[taskID]
+	if task != nil {
 		task.Status = "failed"
 		task.Error = errMsg
 		task.EndTime = time.Now()
 	}
+	cs.mu.Unlock()
 
-	// 立即持久化失败的任务
-	if task, exists := cs.tasks[taskID]; exists {
-		go cs.saveTask(task)
+	if task != nil {
+		if err := cs.persistTaskByID(taskID); err != nil {
+			utils.LogError("持久化失败任务失败: " + err.Error())
+		}
 	}
 }
 
@@ -502,164 +463,262 @@ func (cs *CommentService) cleanupWorker() {
 	}
 }
 
-// CleanOldTasks 清理旧任务
+// CleanOldTasks 清理旧任务。service 锁内只更新内存，磁盘 I/O 全部在锁外完成。
 func (cs *CommentService) CleanOldTasks() {
-	cs.mu.Lock()
-	defer cs.mu.Unlock()
-
 	cutoff := time.Now().Add(-1 * time.Hour)
-	for taskID, task := range cs.tasks {
-		if task.EndTime.Before(cutoff) && !task.EndTime.IsZero() {
-			delete(cs.tasks, taskID)
-			// 同时删除存储中的任务
-			cs.storage.DeleteTask(taskID)
-		}
-	}
+	removed := make(map[string]*ScrapeTask)
 
-	// 更新索引
-	cs.updateIndex()
-}
-
-// loadTasksFromStorage 从存储加载任务
-func (cs *CommentService) loadTasksFromStorage() {
-	tasks, err := cs.storage.ListTasks()
-	if err != nil {
-		fmt.Printf("加载任务失败: %v\n", err)
-		return
-	}
-
-	fmt.Printf("从存储加载 %d 个任务\n", len(tasks))
-
-	for _, meta := range tasks {
-		// 将 running 状态的任务标记为 failed（重启中断）
-		if meta.Status == "running" {
-			meta.Status = "failed"
-			meta.Error = "任务被中断（服务器重启）"
-		}
-
-		// 只加载元数据到内存，评论数据懒加载
-		task := &ScrapeTask{
-			TaskID:     meta.TaskID,
-			VideoID:    meta.VideoID,
-			VideoTitle: meta.VideoTitle,
-			Status:     meta.Status,
-			Comments:   nil, // 懒加载
-			Progress: TaskProgress{
-				TotalComments: meta.CommentCount, // 使用索引中的评论数
-				PageLimit:     2,                 // 默认值
-			},
-			StartTime: meta.StartTime,
-			EndTime:   meta.EndTime,
-			Error:     meta.Error,
-		}
-
-		cs.tasks[meta.TaskID] = task
-	}
-
-	// 更新索引（处理状态变更）
-	if len(tasks) > 0 {
-		cs.updateIndex()
-	}
-}
-
-// persistWorker 后台持久化工作器
-func (cs *CommentService) persistWorker() {
-	ticker := time.NewTicker(30 * time.Second)
-	defer ticker.Stop()
-
-	for {
-		select {
-		case <-cs.ctx.Done():
-			utils.LogInfo("persistWorker stopped")
-			return
-		case <-ticker.C:
-			cs.persistDirtyTasks()
-		}
-	}
-}
-
-// persistDirtyTasks 持久化脏任务
-func (cs *CommentService) persistDirtyTasks() {
 	cs.mu.Lock()
-	dirtyTasks := make(map[string]*ScrapeTask)
-	for taskID := range cs.dirty {
-		if task, exists := cs.tasks[taskID]; exists {
-			dirtyTasks[taskID] = task
+	for taskID, task := range cs.tasks {
+		if !task.EndTime.IsZero() && task.EndTime.Before(cutoff) {
+			removed[taskID] = task
+			delete(cs.tasks, taskID)
 		}
-		delete(cs.dirty, taskID)
 	}
 	cs.mu.Unlock()
 
-	// 持久化脏任务
-	for _, task := range dirtyTasks {
-		if err := cs.saveTask(task); err != nil {
-			fmt.Printf("持久化任务失败 %s: %v\n", task.TaskID, err)
+	if len(removed) == 0 {
+		return
+	}
+
+	if err := cs.persistIndex(); err != nil {
+		// 索引更新失败时恢复内存，避免 index 指向被删除的数据。
+		cs.mu.Lock()
+		for taskID, task := range removed {
+			if _, exists := cs.tasks[taskID]; !exists {
+				cs.tasks[taskID] = task
+			}
+		}
+		cs.mu.Unlock()
+		utils.LogError("更新任务索引失败，取消清理: " + err.Error())
+		return
+	}
+
+	for taskID := range removed {
+		if err := cs.storage.DeleteTask(taskID); err != nil {
+			utils.LogError(fmt.Sprintf("删除任务 %s 失败: %v", taskID, err))
 		}
 	}
 }
 
-// saveTask 保存单个任务
-func (cs *CommentService) saveTask(task *ScrapeTask) error {
-	// 转换为存储层格式
-	taskData := cs.convertToStorageFormat(task)
-
-	// 保存任务数据
-	if err := cs.storage.SaveTask(taskData); err != nil {
-		return err
+// loadTasksFromStorage 从存储加载任务元数据，评论按需加载。
+func (cs *CommentService) loadTasksFromStorage() {
+	metas, err := cs.storage.ListTasks()
+	if err != nil {
+		utils.LogError("加载任务失败: " + err.Error())
+		return
 	}
 
-	// 更新索引
-	return cs.updateIndex()
+	utils.LogInfo(fmt.Sprintf("从存储加载 %d 个任务", len(metas)))
+	statusChanged := false
+
+	cs.mu.Lock()
+	for _, meta := range metas {
+		if meta.Status == "running" {
+			meta.Status = "failed"
+			meta.Error = "任务被中断（服务器重启）"
+			statusChanged = true
+		}
+		cs.tasks[meta.TaskID] = taskFromMeta(meta)
+	}
+	cs.mu.Unlock()
+
+	if statusChanged {
+		if err := cs.persistIndex(); err != nil {
+			utils.LogError("持久化重启后的任务状态失败: " + err.Error())
+		}
+	}
 }
 
-// updateIndex 更新任务索引
-func (cs *CommentService) updateIndex() error {
+// ensureTaskLoaded 确保指定任务的元数据存在于内存。
+func (cs *CommentService) ensureTaskLoaded(taskID string) error {
+	cs.mu.RLock()
+	_, exists := cs.tasks[taskID]
+	cs.mu.RUnlock()
+	if exists {
+		return nil
+	}
+
+	index, err := cs.storage.LoadIndex()
+	if err != nil {
+		return fmt.Errorf("failed to load index: %w", err)
+	}
+
+	var meta *storage.TaskMeta
+	for i := range index.Tasks {
+		if index.Tasks[i].TaskID == taskID {
+			copyMeta := index.Tasks[i]
+			meta = &copyMeta
+			break
+		}
+	}
+	if meta == nil {
+		return fmt.Errorf("task not found: %s", taskID)
+	}
+
+	loaded := taskFromMeta(*meta)
+	cs.mu.Lock()
+	if _, exists := cs.tasks[taskID]; !exists {
+		cs.tasks[taskID] = loaded
+	}
+	cs.mu.Unlock()
+	return nil
+}
+
+func taskFromMeta(meta storage.TaskMeta) *ScrapeTask {
+	pageLimit := meta.PageLimit
+	if pageLimit <= 0 {
+		pageLimit = 2
+	}
+	sortMode := meta.SortMode
+	if sortMode == "" {
+		sortMode = "time"
+	}
+
+	return &ScrapeTask{
+		TaskID:         meta.TaskID,
+		VideoID:        meta.VideoID,
+		VideoTitle:     meta.VideoTitle,
+		Status:         meta.Status,
+		Comments:       nil,
+		CommentsLoaded: false,
+		Progress: TaskProgress{
+			CurrentPage:   meta.CurrentPage,
+			TotalComments: meta.CommentCount,
+			PageLimit:     pageLimit,
+		},
+		StartTime:      meta.StartTime,
+		EndTime:        meta.EndTime,
+		Error:          meta.Error,
+		AuthType:       meta.AuthType,
+		PageLimit:      pageLimit,
+		DelayMs:        meta.DelayMs,
+		SortMode:       sortMode,
+		IncludeReplies: meta.IncludeReplies,
+	}
+}
+
+func cloneTaskLocked(task *ScrapeTask, includeComments bool) *ScrapeTask {
+	if task == nil {
+		return nil
+	}
+	copyTask := *task
+	if includeComments {
+		copyTask.Comments = cloneComments(task.Comments)
+	} else {
+		copyTask.Comments = nil
+	}
+	return &copyTask
+}
+
+func cloneComments(comments []bilibili.CommentData) []bilibili.CommentData {
+	if comments == nil {
+		return nil
+	}
+	result := make([]bilibili.CommentData, len(comments))
+	for i, comment := range comments {
+		result[i] = comment
+		if comment.Replies != nil {
+			result[i].Replies = cloneComments(comment.Replies)
+		}
+		if comment.Content.Emote != nil {
+			result[i].Content.Emote = make(map[string]bilibili.Emote, len(comment.Content.Emote))
+			for key, value := range comment.Content.Emote {
+				result[i].Content.Emote[key] = value
+			}
+		}
+		if comment.Content.JumpUrl != nil {
+			result[i].Content.JumpUrl = make(map[string]bilibili.JumpUrl, len(comment.Content.JumpUrl))
+			for key, value := range comment.Content.JumpUrl {
+				result[i].Content.JumpUrl[key] = value
+			}
+		}
+	}
+	return result
+}
+
+// persistenceSnapshot 在一把读锁下同时生成任务快照和索引快照。
+func (cs *CommentService) persistenceSnapshot(taskID string) (*ScrapeTask, *storage.TaskIndex, error) {
 	cs.mu.RLock()
 	defer cs.mu.RUnlock()
 
-	// 构建索引
-	var metas []storage.TaskMeta
-	for _, task := range cs.tasks {
-		// 使用 Progress.TotalComments 而不是 len(task.Comments)
-		// 因为 Comments 可能未加载（懒加载）
-		commentCount := task.Progress.TotalComments
-		if commentCount == 0 && len(task.Comments) > 0 {
-			commentCount = len(task.Comments)
-		}
-
-		meta := storage.TaskMeta{
-			TaskID:       task.TaskID,
-			VideoID:      task.VideoID,
-			VideoTitle:   task.VideoTitle,
-			Status:       task.Status,
-			CommentCount: commentCount,
-			StartTime:    task.StartTime,
-			EndTime:      task.EndTime,
-			DataFile:     task.TaskID + ".json",
-			Error:        task.Error,
-		}
-		metas = append(metas, meta)
+	task := cs.tasks[taskID]
+	if task == nil {
+		return nil, nil, fmt.Errorf("task not found: %s", taskID)
 	}
-
-	index := &storage.TaskIndex{
-		Tasks: metas,
-	}
-
-	return cs.storage.SaveIndex(index)
+	taskSnapshot := cloneTaskLocked(task, task.CommentsLoaded)
+	return taskSnapshot, cs.buildIndexLocked(), nil
 }
 
-// loadTaskComments 懒加载任务的评论数据
-func (cs *CommentService) loadTaskComments(task *ScrapeTask) error {
-	taskData, err := cs.storage.LoadTask(task.TaskID)
+func (cs *CommentService) persistTaskByID(taskID string) error {
+	taskSnapshot, index, err := cs.persistenceSnapshot(taskID)
 	if err != nil {
 		return err
 	}
 
-	// 转换评论数据
-	task.Comments = cs.convertFromStorageFormat(taskData.Comments)
-	// 更新进度中的评论总数
-	task.Progress.TotalComments = len(task.Comments)
-	return nil
+	// 已卸载的 completed 评论已经安全存在于磁盘，避免用 nil 覆盖已有结果。
+	if taskSnapshot.CommentsLoaded {
+		if err := cs.storage.SaveTask(cs.convertToStorageFormat(taskSnapshot)); err != nil {
+			return err
+		}
+	}
+	return cs.storage.SaveIndex(index)
+}
+
+func (cs *CommentService) persistIndex() error {
+	cs.mu.RLock()
+	index := cs.buildIndexLocked()
+	cs.mu.RUnlock()
+	return cs.storage.SaveIndex(index)
+}
+
+func (cs *CommentService) buildIndexLocked() *storage.TaskIndex {
+	metas := make([]storage.TaskMeta, 0, len(cs.tasks))
+	for _, task := range cs.tasks {
+		commentCount := task.Progress.TotalComments
+		if commentCount == 0 && task.CommentsLoaded {
+			commentCount = len(task.Comments)
+		}
+		metas = append(metas, storage.TaskMeta{
+			TaskID:         task.TaskID,
+			VideoID:        task.VideoID,
+			VideoTitle:     task.VideoTitle,
+			Status:         task.Status,
+			CommentCount:   commentCount,
+			CurrentPage:    task.Progress.CurrentPage,
+			PageLimit:      task.PageLimit,
+			DelayMs:        task.DelayMs,
+			SortMode:       task.SortMode,
+			IncludeReplies: task.IncludeReplies,
+			AuthType:       task.AuthType,
+			StartTime:      task.StartTime,
+			EndTime:        task.EndTime,
+			DataFile:       task.TaskID + ".json",
+			Error:          task.Error,
+		})
+	}
+	return &storage.TaskIndex{Tasks: metas}
+}
+
+// flushAllTasks 在 shutdown 最后写入所有仍驻留内存的快照，并一次性更新索引。
+func (cs *CommentService) flushAllTasks() error {
+	cs.mu.RLock()
+	snapshots := make([]*ScrapeTask, 0, len(cs.tasks))
+	for _, task := range cs.tasks {
+		snapshots = append(snapshots, cloneTaskLocked(task, task.CommentsLoaded))
+	}
+	index := cs.buildIndexLocked()
+	cs.mu.RUnlock()
+
+	for _, task := range snapshots {
+		if !task.CommentsLoaded {
+			continue
+		}
+		if err := cs.storage.SaveTask(cs.convertToStorageFormat(task)); err != nil {
+			return fmt.Errorf("flush task %s: %w", task.TaskID, err)
+		}
+	}
+	return cs.storage.SaveIndex(index)
 }
 
 // convertToStorageFormat 转换为存储层格式
@@ -746,7 +805,7 @@ func (cs *CommentService) convertCommentFromStorage(e storage.CommentEntry) bili
 		replies[i] = cs.convertCommentFromStorage(r)
 	}
 
-	return bilibili.CommentData{
+	comment := bilibili.CommentData{
 		RPID:      e.RPID,
 		OID:       e.OID,
 		Type:      e.Type,
@@ -774,23 +833,14 @@ func (cs *CommentService) convertCommentFromStorage(e storage.CommentEntry) bili
 		},
 		Replies: replies,
 	}
+	comment.Member.LevelInfo.CurrentLevel = e.Member.Level
+	return comment
 }
 
-// markDirty 标记任务为脏数据
-func (cs *CommentService) markDirty(taskID string) {
-	cs.mu.Lock()
-	defer cs.mu.Unlock()
-	cs.dirty[taskID] = true
-}
-
-// Shutdown 优雅关闭服务
 func (cs *CommentService) Shutdown(ctx context.Context) error {
 	utils.LogInfo("Shutting down CommentService...")
-
-	// 取消 context
 	cs.cancel()
 
-	// 等待所有 goroutine 结束
 	done := make(chan struct{})
 	go func() {
 		cs.wg.Wait()
@@ -799,6 +849,34 @@ func (cs *CommentService) Shutdown(ctx context.Context) error {
 
 	select {
 	case <-done:
+		if err := cs.flushAllTasks(); err != nil {
+			utils.LogError("CommentService final flush failed: " + err.Error())
+			return err
+		}
+		utils.LogInfo("CommentService shutdown complete")
+		return nil
+	case <-ctx.Done():
+		utils.LogError("CommentService shutdown timeout")
+		return ctx.Err()
+	}
+}
+// Shutdown 优雅关闭服务
+func (cs *CommentService) Shutdown(ctx context.Context) error {
+	utils.LogInfo("Shutting down CommentService...")
+	cs.cancel()
+
+	done := make(chan struct{})
+	go func() {
+		cs.wg.Wait()
+		close(done)
+	}()
+
+	select {
+	case <-done:
+		if err := cs.flushAllTasks(); err != nil {
+			utils.LogError("CommentService final flush failed: " + err.Error())
+			return err
+		}
 		utils.LogInfo("CommentService shutdown complete")
 		return nil
 	case <-ctx.Done():
