@@ -684,9 +684,7 @@ func (cs *CommentService) convertToStorageFormat(task *ScrapeTask) *storage.Task
 		EndTime:        task.EndTime,
 		Error:          task.Error,
 		AuthType:       task.AuthType,
-		Cookie:         task.Cookie,
-		AppKey:         task.AppKey,
-		AppSecret:      task.AppSecret,
+		// Cookie/AppKey/AppSecret are runtime-only and must never be persisted.
 		PageLimit:      task.PageLimit,
 		DelayMs:        task.DelayMs,
 		SortMode:       task.SortMode,
