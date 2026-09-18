@@ -1,6 +1,7 @@
 package bilibili
 
-import (\n\t"time"
+import (
+	"time"
 	"context"
 	"encoding/json"
 	"net/http"
