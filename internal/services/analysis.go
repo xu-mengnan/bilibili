@@ -450,31 +450,31 @@ func (s *AnalysisService) getMockResponse(prompt string) string {
 *以上为模拟分析结果。要获取真实的AI分析，请通过` + "`" + `ZHIPU_API_KEY` + "`" + `环境变量配置密钥，不要将密钥提交到 Git。*`
 }
 
-// ChunkCallback 流式输出回调函数类型
+// ChunkCallback receives a delta chunk, not the accumulated response.
 type ChunkCallback func(chunk string)
 
-// CallLLMStream 调用LLM API（流式输出，带回调）
+// CallLLMStream 调用 LLM API，并以增量 chunk 回调。
+// 完整结果仍在服务端累积并作为返回值返回，网络传输保持 O(n)。
 func (s *AnalysisService) CallLLMStream(ctx context.Context, callback ChunkCallback, prompt string) (string, error) {
+	if ctx == nil {
+		ctx = context.Background()
+	}
+	if callback == nil {
+		callback = func(string) {}
+	}
+
 	if s.apiKey == "" {
-		// 模拟响应也使用流式输出，每次发送累积的完整内容
 		mockResponse := s.getMockResponse(prompt)
-		chunks := splitIntoChunks(mockResponse, 20) // 每20个字符为一个chunk
-		var accumulated strings.Builder
-		for _, chunk := range chunks {
-			// 检查是否被取消
+		for _, chunk := range splitIntoChunks(mockResponse, 20) {
 			select {
 			case <-ctx.Done():
 				return "", ctx.Err()
 			default:
 			}
-
-			accumulated.WriteString(chunk)
-			callback(accumulated.String()) // 发送累积的完整内容
+			callback(chunk)
 		}
 		return mockResponse, nil
 	}
-
-	startTime := time.Now()
 
 	reqBody := LLMRequest{
 		Model: s.model,
@@ -490,79 +490,49 @@ func (s *AnalysisService) CallLLMStream(ctx context.Context, callback ChunkCallb
 		return "", fmt.Errorf("序列化请求失败: %w", err)
 	}
 
-	fmt.Printf("[LLM] 请求体大小: %d bytes\n", len(jsonBody))
-
-	httpReq, err := http.NewRequest("POST", s.apiURL, bytes.NewBuffer(jsonBody))
+	httpReq, err := http.NewRequestWithContext(ctx, http.MethodPost, s.apiURL, bytes.NewBuffer(jsonBody))
 	if err != nil {
 		return "", fmt.Errorf("创建请求失败: %w", err)
 	}
-
-	// 使用传入的 context
-	httpReq = httpReq.WithContext(ctx)
-
 	httpReq.Header.Set("Content-Type", "application/json")
 	httpReq.Header.Set("Authorization", "Bearer "+s.apiKey)
 	httpReq.Header.Set("Accept", "text/event-stream")
 	httpReq.Header.Set("Cache-Control", "no-cache")
 
-	fmt.Printf("[LLM] 发起请求到: %s\n", s.apiURL)
-	reqSendTime := time.Now()
-
 	resp, err := s.httpClient.Do(httpReq)
 	if err != nil {
+		if ctx.Err() != nil {
+			return "", ctx.Err()
+		}
 		return "", fmt.Errorf("请求失败: %w", err)
 	}
 	defer resp.Body.Close()
 
-	respRecvTime := time.Now()
-	fmt.Printf("[LLM] 响应时间: %v, 状态码: %d\n", respRecvTime.Sub(reqSendTime), resp.StatusCode)
-
 	if resp.StatusCode != http.StatusOK {
-		body, _ := io.ReadAll(resp.Body)
+		body, _ := io.ReadAll(io.LimitReader(resp.Body, 32<<10))
 		return "", fmt.Errorf("API返回错误: %s, Body: %s", resp.Status, string(body))
 	}
 
-	// 使用原始 reader 读取流，避免 bufio.Scanner 的缓冲延迟
 	var fullContent strings.Builder
-	reader := bufio.NewReader(resp.Body)
-	firstChunkTime := time.Time{}
-	chunkCount := 0
+	scanner := bufio.NewScanner(resp.Body)
+	scanner.Buffer(make([]byte, 64*1024), 2*1024*1024)
 
-	for {
-		// 检查是否被取消
+	for scanner.Scan() {
 		select {
 		case <-ctx.Done():
 			return "", ctx.Err()
 		default:
 		}
 
-		line, isPrefix, err := reader.ReadLine()
-		if err != nil {
-			if err == io.EOF {
-				break
-			}
-			return "", fmt.Errorf("读取流失败: %w", err)
-		}
-
-		// 处理超长行（虽然 SSE 通常不会有超长行）
-		if isPrefix {
-			for {
-				_, isPrefix, err := reader.ReadLine()
-				if err != nil || !isPrefix {
-					break
-				}
-			}
+		line := scanner.Text()
+		if !strings.HasPrefix(line, "data:") {
 			continue
 		}
-
-		// 解析 SSE 格式
-		lineStr := string(line)
-		if len(lineStr) < 6 || lineStr[:6] != "data: " {
+		data := strings.TrimSpace(strings.TrimPrefix(line, "data:"))
+		if data == "" {
 			continue
 		}
-		data := lineStr[6:]
 		if data == "[DONE]" {
-			fmt.Printf("[LLM] 收到 [DONE] 信号\n")
 			break
 		}
 
@@ -576,29 +546,29 @@ func (s *AnalysisService) CallLLMStream(ctx context.Context, callback ChunkCallb
 		if err := json.Unmarshal([]byte(data), &streamResp); err != nil {
 			continue
 		}
-
-		if len(streamResp.Choices) > 0 && streamResp.Choices[0].Delta.Content != "" {
-			chunk := streamResp.Choices[0].Delta.Content
-			chunkCount++
-			if firstChunkTime.IsZero() {
-				firstChunkTime = time.Now()
-				fmt.Printf("[LLM] 首个 chunk 延迟: %v\n", firstChunkTime.Sub(respRecvTime))
-			}
-			fullContent.WriteString(chunk)
-			// 发送累积的完整内容到前端
-			callback(fullContent.String())
+		if len(streamResp.Choices) == 0 {
+			continue
 		}
+
+		chunk := streamResp.Choices[0].Delta.Content
+		if chunk == "" {
+			continue
+		}
+		fullContent.WriteString(chunk)
+		callback(chunk)
 	}
 
-	endTime := time.Now()
-	fmt.Printf("[LLM] 流式读取完成，总耗时: %v, chunk数: %d, 内容长度: %d\n",
-		endTime.Sub(startTime), chunkCount, fullContent.Len())
+	if err := scanner.Err(); err != nil {
+		if ctx.Err() != nil {
+			return "", ctx.Err()
+		}
+		return "", fmt.Errorf("读取流失败: %w", err)
+	}
 
 	result := fullContent.String()
 	if result == "" {
 		return "", fmt.Errorf("API返回空响应")
 	}
-
 	return result, nil
 }
 

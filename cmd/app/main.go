@@ -34,8 +34,11 @@ func main() {
 	server := &http.Server{
 		Addr:         addr,
 		Handler:      router,
-		ReadTimeout:  15 * time.Second,
-		WriteTimeout: 15 * time.Second,
+		ReadTimeout:       15 * time.Second,
+		ReadHeaderTimeout: 10 * time.Second,
+		// Streaming analysis can legitimately exceed minutes. Per-request
+		// cancellation/provider timeouts bound SSE work instead of WriteTimeout.
+		WriteTimeout: 0,
 		IdleTimeout:  60 * time.Second,
 	}
 

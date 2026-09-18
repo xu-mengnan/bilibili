@@ -6,6 +6,7 @@ import (
 	"io"
 	"net/http"
 	"strings"
+	"time"
 
 	"bilibili/internal/services"
 	"bilibili/pkg/bilibili"
@@ -281,72 +282,53 @@ func (h *AnalysisHandlers) AnalyzeStreamHandler(c *gin.Context) {
 		template = t.Prompt
 	}
 
-	// 设置 SSE 响应头
+	commentsText := h.analysisService.FormatComments(task.Comments, req.CommentLimit)
+	promptTemplate := template
+	if promptTemplate == "" {
+		promptTemplate = h.analysisService.GetPresetTemplates()[0].Prompt
+	}
+	prompt := h.analysisService.RenderTemplate(promptTemplate, commentsText, task.VideoTitle, len(task.Comments))
+
 	c.Writer.Header().Set("Content-Type", "text/event-stream")
 	c.Writer.Header().Set("Cache-Control", "no-cache")
 	c.Writer.Header().Set("Connection", "keep-alive")
-	c.Writer.Header().Set("X-Accel-Buffering", "no") // 禁用 Nginx 缓冲
+	c.Writer.Header().Set("X-Accel-Buffering", "no")
 
-	// 获取 flusher
 	flusher, ok := c.Writer.(http.Flusher)
 	if !ok {
 		c.JSON(http.StatusInternalServerError, gin.H{"error": "Streaming not supported"})
 		return
 	}
 
-	// 创建流式响应通道（增大缓冲区）
-	streamChan := make(chan string, 100)
-	errorChan := make(chan error, 1)
+	events := runAnalysisStream(c.Request.Context(), h.analysisService, prompt)
+	heartbeat := time.NewTicker(15 * time.Second)
+	defer heartbeat.Stop()
 
-	// 在 goroutine 中执行分析
-	go func() {
-		// 格式化评论数据
-		commentsText := h.analysisService.FormatComments(task.Comments, req.CommentLimit)
-
-		// 使用 template 作为 promptTemplate（此时 template 已经是 Prompt 内容）
-		promptTemplate := template
-		if promptTemplate == "" {
-			promptTemplate = h.analysisService.GetPresetTemplates()[0].Prompt
-		}
-
-		// 渲染 Prompt
-		prompt := h.analysisService.RenderTemplate(promptTemplate, commentsText, task.VideoTitle, len(task.Comments))
-
-		// 调用流式 LLM，传递 context
-		_, err := h.analysisService.CallLLMStream(c.Request.Context(), func(chunk string) {
-			// 立即发送到 channel
-			streamChan <- chunk
-		}, prompt)
-
-		if err != nil {
-			errorChan <- err
-			return
-		}
-
-		// 发送完成信号
-		streamChan <- "[DONE]"
-	}()
-
-	// 发送 SSE 事件
 	c.Stream(func(w io.Writer) bool {
 		select {
-		case chunk := <-streamChan:
-			if chunk == "[DONE]" {
-				// 发送完成事件
-				fmt.Fprintf(w, "event: done\ndata: \n\n")
+		case event, ok := <-events:
+			if !ok {
+				return false
+			}
+			if event.Err != nil {
+				data, _ := json.Marshal(event.Err.Error())
+				fmt.Fprintf(w, "event: error\ndata: %s\n\n", data)
 				flusher.Flush()
 				return false
 			}
-			// 将内容进行 JSON 编码，避免换行符等特殊字符破坏 SSE 格式
-			jsonData, _ := json.Marshal(chunk)
-			fmt.Fprintf(w, "event: content\ndata: %s\n\n", string(jsonData))
+			if event.Done {
+				fmt.Fprint(w, "event: done\ndata: \n\n")
+				flusher.Flush()
+				return false
+			}
+			data, _ := json.Marshal(event.Chunk)
+			fmt.Fprintf(w, "event: content\ndata: %s\n\n", data)
 			flusher.Flush()
 			return true
-		case err := <-errorChan:
-			// 发送错误事件
-			fmt.Fprintf(w, "event: error\ndata: %s\n\n", err.Error())
+		case <-heartbeat.C:
+			fmt.Fprint(w, ": heartbeat\n\n")
 			flusher.Flush()
-			return false
+			return true
 		case <-c.Request.Context().Done():
 			return false
 		}
