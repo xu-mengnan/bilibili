@@ -227,7 +227,7 @@ func TestScrapeWorkerPoolBoundsConcurrencyAndQueue(t *testing.T) {
 
 	service := newCommentService(ctx, storage.NewJSONStorage(t.TempDir()), 1, 2)
 
-	started := make(chan string, 1)
+	started := make(chan string, 4)
 	release := make(chan struct{})
 	service.executeTaskFn = func(taskID string) {
 		started <- taskID
