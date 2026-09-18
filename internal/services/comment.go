@@ -837,29 +837,6 @@ func (cs *CommentService) convertCommentFromStorage(e storage.CommentEntry) bili
 	return comment
 }
 
-func (cs *CommentService) Shutdown(ctx context.Context) error {
-	utils.LogInfo("Shutting down CommentService...")
-	cs.cancel()
-
-	done := make(chan struct{})
-	go func() {
-		cs.wg.Wait()
-		close(done)
-	}()
-
-	select {
-	case <-done:
-		if err := cs.flushAllTasks(); err != nil {
-			utils.LogError("CommentService final flush failed: " + err.Error())
-			return err
-		}
-		utils.LogInfo("CommentService shutdown complete")
-		return nil
-	case <-ctx.Done():
-		utils.LogError("CommentService shutdown timeout")
-		return ctx.Err()
-	}
-}
 // Shutdown 优雅关闭服务
 func (cs *CommentService) Shutdown(ctx context.Context) error {
 	utils.LogInfo("Shutting down CommentService...")
