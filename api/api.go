@@ -65,7 +65,7 @@ func SetupRoutes(ctx context.Context) (*gin.Engine, *Services) {
 	videoHandlers := handlers.NewVideoHandlers(videoService)
 	analysisHandlers := handlers.NewAnalysisHandlers(commentService, analysisService)
 	v2Handlers := handlers.NewV2Handlers(commentService, analysisService)
-	healthHandler := handlers.NewHealthHandler()
+	healthHandler := handlers.NewHealthHandler(commentService)
 
 	// 静态文件服务
 	r.Static("/static", "./static")

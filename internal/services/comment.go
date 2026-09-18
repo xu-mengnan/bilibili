@@ -2,11 +2,14 @@ package services
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"github.com/google/uuid"
 	"sort"
+	"strconv"
 	"strings"
 	"sync"
+	"sync/atomic"
 	"time"
 
 	"bilibili/pkg/bilibili"
@@ -21,7 +24,22 @@ type CommentService struct {
 	wg      sync.WaitGroup
 	tasks   map[string]*ScrapeTask
 	mu      sync.RWMutex
-	storage storage.TaskStorage // 存储层
+	storage storage.TaskStorage
+
+	jobQueue      chan string
+	workerCount   int
+	enqueueMu     sync.Mutex
+	running       int64
+	executeTaskFn func(string)
+}
+
+var ErrScrapeQueueFull = errors.New("scrape queue is full")
+
+type ScrapeQueueStats struct {
+	Queued   int   `json:"queued"`
+	Running  int64 `json:"running"`
+	Workers  int   `json:"workers"`
+	Capacity int   `json:"capacity"`
 }
 
 // ScrapeTask 爬取任务
@@ -55,22 +73,40 @@ type TaskProgress struct {
 
 // NewCommentService 创建评论服务
 func NewCommentService(ctx context.Context, storage storage.TaskStorage) *CommentService {
-	serviceCtx, cancel := context.WithCancel(ctx)
+	return newCommentService(ctx, storage, 4, 32)
+}
 
+func newCommentService(ctx context.Context, storage storage.TaskStorage, workers, queueCapacity int) *CommentService {
+	if workers <= 0 {
+		workers = 1
+	}
+	if queueCapacity <= 0 {
+		queueCapacity = 1
+	}
+
+	serviceCtx, cancel := context.WithCancel(ctx)
 	cs := &CommentService{
-		ctx:     serviceCtx,
-		cancel:  cancel,
-		tasks:   make(map[string]*ScrapeTask),
-		storage: storage,
+		ctx:         serviceCtx,
+		cancel:      cancel,
+		tasks:       make(map[string]*ScrapeTask),
+		storage:     storage,
+		jobQueue:    make(chan string, queueCapacity),
+		workerCount: workers,
 	}
 
 	if err := storage.Initialize(); err != nil {
 		utils.LogError("初始化任务存储失败: " + err.Error())
 	}
-
 	cs.loadTasksFromStorage()
 
-	// 仅保留清理 goroutine；持久化在状态转换点同步完成，避免未跟踪 save goroutine。
+	for i := 0; i < cs.workerCount; i++ {
+		cs.wg.Add(1)
+		go func(workerID int) {
+			defer cs.wg.Done()
+			cs.workerLoop(workerID)
+		}(i)
+	}
+
 	cs.wg.Add(1)
 	go func() {
 		defer cs.wg.Done()
@@ -80,8 +116,63 @@ func NewCommentService(ctx context.Context, storage storage.TaskStorage) *Commen
 	return cs
 }
 
+func (cs *CommentService) workerLoop(workerID int) {
+	for {
+		select {
+		case <-cs.ctx.Done():
+			return
+		default:
+		}
+
+		select {
+		case <-cs.ctx.Done():
+			return
+		case taskID := <-cs.jobQueue:
+			if cs.ctx.Err() != nil {
+				return
+			}
+			atomic.AddInt64(&cs.running, 1)
+
+			cs.mu.Lock()
+			if task := cs.tasks[taskID]; task != nil && task.Status == "queued" {
+				task.Status = "running"
+			}
+			cs.mu.Unlock()
+			if err := cs.persistIndex(); err != nil {
+				utils.LogError(fmt.Sprintf("worker %d 更新任务状态失败: %v", workerID, err))
+			}
+
+			if cs.executeTaskFn != nil {
+				cs.executeTaskFn(taskID)
+			} else {
+				cs.executeScrapingTask(taskID)
+			}
+			atomic.AddInt64(&cs.running, -1)
+		}
+	}
+}
+
+func (cs *CommentService) QueueStats() ScrapeQueueStats {
+	return ScrapeQueueStats{
+		Queued:   len(cs.jobQueue),
+		Running:  atomic.LoadInt64(&cs.running),
+		Workers:  cs.workerCount,
+		Capacity: cap(cs.jobQueue),
+	}
+}
+
 // StartScrapeTask 启动爬取任务
 func (cs *CommentService) StartScrapeTask(videoID, authType, cookie, appKey, appSecret, sortMode string, includeReplies bool, pageLimit, delayMs int) (string, error) {
+	cs.enqueueMu.Lock()
+	defer cs.enqueueMu.Unlock()
+
+	if cs.ctx.Err() != nil {
+		return "", cs.ctx.Err()
+	}
+	if len(cs.jobQueue) >= cap(cs.jobQueue) {
+		return "", ErrScrapeQueueFull
+	}
+
 	taskID := uuid.New().String()
 	if sortMode == "" {
 		sortMode = "time"
@@ -90,7 +181,7 @@ func (cs *CommentService) StartScrapeTask(videoID, authType, cookie, appKey, app
 	task := &ScrapeTask{
 		TaskID:         taskID,
 		VideoID:        videoID,
-		Status:         "running",
+		Status:         "queued",
 		Comments:       []bilibili.CommentData{},
 		CommentsLoaded: true,
 		Progress:       TaskProgress{CurrentPage: 0, TotalComments: 0, PageLimit: pageLimit},
@@ -109,7 +200,6 @@ func (cs *CommentService) StartScrapeTask(videoID, authType, cookie, appKey, app
 	cs.tasks[taskID] = task
 	cs.mu.Unlock()
 
-	// 先持久化已接受的任务，再启动后台工作，避免“已返回 task_id 但任务尚未落盘”。
 	if err := cs.persistTaskByID(taskID); err != nil {
 		cs.mu.Lock()
 		delete(cs.tasks, taskID)
@@ -117,13 +207,18 @@ func (cs *CommentService) StartScrapeTask(videoID, authType, cookie, appKey, app
 		return "", fmt.Errorf("failed to persist new task: %w", err)
 	}
 
-	cs.wg.Add(1)
-	go func() {
-		defer cs.wg.Done()
-		cs.executeScrapingTask(taskID)
-	}()
-
-	return taskID, nil
+	select {
+	case cs.jobQueue <- taskID:
+		return taskID, nil
+	default:
+		// This should be rare because admission is serialized; roll back cleanly.
+		cs.mu.Lock()
+		delete(cs.tasks, taskID)
+		cs.mu.Unlock()
+		_ = cs.storage.DeleteTask(taskID)
+		_ = cs.persistIndex()
+		return "", ErrScrapeQueueFull
+	}
 }
 
 // GetTaskProgress 返回只读元数据快照，不隐式加载大块评论数据。
@@ -234,7 +329,18 @@ func (cs *CommentService) executeScrapingTask(taskID string) {
 		return
 	}
 
-	videoResp, err := bilibili.GetVideoByBVIDContext(cs.ctx, taskConfig.VideoID)
+	var videoResp *bilibili.VideoResponse
+	var err error
+	if strings.HasPrefix(strings.ToLower(taskConfig.VideoID), "av") {
+		aid, parseErr := strconv.ParseInt(taskConfig.VideoID[2:], 10, 64)
+		if parseErr != nil {
+			cs.updateTaskError(taskID, "invalid AV id")
+			return
+		}
+		videoResp, err = bilibili.GetVideoByAIDContext(cs.ctx, aid)
+	} else {
+		videoResp, err = bilibili.GetVideoByBVIDContext(cs.ctx, taskConfig.VideoID)
+	}
 	if err != nil {
 		if cs.ctx.Err() != nil {
 			cs.cancelTask(taskID, "Task cancelled by shutdown")
@@ -521,7 +627,7 @@ func (cs *CommentService) loadTasksFromStorage() {
 
 	cs.mu.Lock()
 	for _, meta := range metas {
-		if meta.Status == "running" {
+		if meta.Status == "running" || meta.Status == "queued" {
 			meta.Status = "failed"
 			meta.Error = "任务被中断（服务器重启）"
 			statusChanged = true
@@ -857,6 +963,7 @@ func (cs *CommentService) Shutdown(ctx context.Context) error {
 
 	select {
 	case <-done:
+		cs.cancelQueuedTasks()
 		if err := cs.flushAllTasks(); err != nil {
 			utils.LogError("CommentService final flush failed: " + err.Error())
 			return err
@@ -866,5 +973,23 @@ func (cs *CommentService) Shutdown(ctx context.Context) error {
 	case <-ctx.Done():
 		utils.LogError("CommentService shutdown timeout")
 		return ctx.Err()
+	}
+}
+
+func (cs *CommentService) cancelQueuedTasks() {
+	now := time.Now()
+	for {
+		select {
+		case taskID := <-cs.jobQueue:
+			cs.mu.Lock()
+			if task := cs.tasks[taskID]; task != nil && task.Status == "queued" {
+				task.Status = "cancelled"
+				task.Error = "Task cancelled by shutdown"
+				task.EndTime = now
+			}
+			cs.mu.Unlock()
+		default:
+			return
+		}
 	}
 }

@@ -1,6 +1,8 @@
 package handlers
 
 import (
+	"errors"
+	"fmt"
 	"net/http"
 	"strconv"
 	"strings"
@@ -54,27 +56,11 @@ func (h *CommentHandlers) ScrapeCommentsHandler(c *gin.Context) {
 		return
 	}
 
-	// 设置默认值
-	if req.PageLimit == 0 {
-		req.PageLimit = 2
-	}
-	if req.DelayMs == 0 {
-		req.DelayMs = 300
-	}
-	if req.AuthType == "" {
-		req.AuthType = "none"
-	}
-	if req.SortMode == "" {
-		req.SortMode = "time" // 默认按时间排序
-	}
-
-	// 验证排序模式
-	if req.SortMode != "time" && req.SortMode != "hot" {
-		c.JSON(http.StatusBadRequest, gin.H{"error": "Invalid sort_mode: must be 'time' or 'hot'"})
+	if err := validateAndNormalizeScrapeRequest(&req); err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
 		return
 	}
 
-	// 启动爬取任务
 	taskID, err := h.commentService.StartScrapeTask(
 		req.VideoID,
 		req.AuthType,
@@ -86,22 +72,83 @@ func (h *CommentHandlers) ScrapeCommentsHandler(c *gin.Context) {
 		req.PageLimit,
 		req.DelayMs,
 	)
-
 	if err != nil {
+		if errors.Is(err, services.ErrScrapeQueueFull) {
+			c.Header("Retry-After", "2")
+			c.JSON(http.StatusServiceUnavailable, gin.H{
+				"error": "scrape queue is full, please retry later",
+			})
+			return
+		}
 		c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to start scraping: " + err.Error()})
 		return
 	}
 
-	c.JSON(http.StatusOK, ScrapeResponse{
+	c.JSON(http.StatusAccepted, ScrapeResponse{
 		TaskID:  taskID,
 		VideoID: req.VideoID,
-		Status:  "running",
+		Status:  "queued",
 		Progress: services.TaskProgress{
 			CurrentPage:   0,
 			TotalComments: 0,
 			PageLimit:     req.PageLimit,
 		},
 	})
+}
+
+func validateAndNormalizeScrapeRequest(req *ScrapeRequest) error {
+	if req == nil {
+		return fmt.Errorf("request is required")
+	}
+
+	videoID, videoType, err := services.ParseVideoInput(req.VideoID)
+	if err != nil {
+		return fmt.Errorf("invalid video_id: expected a BV/AV id or Bilibili URL")
+	}
+	if videoType == "av" {
+		req.VideoID = "av" + videoID
+	} else {
+		req.VideoID = videoID
+	}
+
+	if req.PageLimit == 0 {
+		req.PageLimit = 2
+	}
+	if req.PageLimit < 1 || req.PageLimit > 50 {
+		return fmt.Errorf("page_limit must be between 1 and 50")
+	}
+
+	if req.DelayMs == 0 {
+		req.DelayMs = 300
+	}
+	if req.DelayMs < 100 || req.DelayMs > 10000 {
+		return fmt.Errorf("delay_ms must be between 100 and 10000")
+	}
+
+	if req.AuthType == "" {
+		req.AuthType = "none"
+	}
+	switch req.AuthType {
+	case "none":
+	case "cookie":
+		if strings.TrimSpace(req.Cookie) == "" {
+			return fmt.Errorf("cookie auth requires SESSDATA")
+		}
+	case "app":
+		if strings.TrimSpace(req.AppKey) == "" || strings.TrimSpace(req.AppSecret) == "" {
+			return fmt.Errorf("app auth requires app_key and app_secret")
+		}
+	default:
+		return fmt.Errorf("auth_type must be one of: none, cookie, app")
+	}
+
+	if req.SortMode == "" {
+		req.SortMode = "time"
+	}
+	if req.SortMode != "time" && req.SortMode != "hot" {
+		return fmt.Errorf("sort_mode must be 'time' or 'hot'")
+	}
+	return nil
 }
 
 // ProgressResponse 进度响应

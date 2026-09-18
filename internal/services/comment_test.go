@@ -2,6 +2,7 @@ package services
 
 import (
 	"context"
+	"errors"
 	"testing"
 	"time"
 
@@ -216,5 +217,66 @@ func TestCloneCommentsCopiesNestedMutableFields(t *testing.T) {
 		comment.Content.JumpUrl["u"].Title != "u" ||
 		comment.Replies[0].Content.Message != "reply" {
 		t.Fatal("cloneComments did not detach nested mutable state")
+	}
+}
+
+
+func TestScrapeWorkerPoolBoundsConcurrencyAndQueue(t *testing.T) {
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+
+	service := newCommentService(ctx, storage.NewJSONStorage(t.TempDir()), 1, 2)
+
+	started := make(chan string, 4)
+	release := make(chan struct{})
+	service.executeTaskFn = func(taskID string) {
+		started <- taskID
+		<-release
+	}
+
+	first, err := service.StartScrapeTask("BV1xx411c7mD", "none", "", "", "", "time", false, 2, 300)
+	if err != nil {
+		t.Fatal(err)
+	}
+	select {
+	case got := <-started:
+		if got != first {
+			t.Fatalf("worker started %q, want %q", got, first)
+		}
+	case <-time.After(time.Second):
+		t.Fatal("worker did not start first job")
+	}
+
+	if _, err := service.StartScrapeTask("BV1xx411c7mD", "none", "", "", "", "time", false, 2, 300); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := service.StartScrapeTask("BV1xx411c7mD", "none", "", "", "", "time", false, 2, 300); err != nil {
+		t.Fatal(err)
+	}
+
+	stats := service.QueueStats()
+	if stats.Running != 1 || stats.Queued != 2 || stats.Workers != 1 || stats.Capacity != 2 {
+		t.Fatalf("unexpected queue stats: %#v", stats)
+	}
+
+	if _, err := service.StartScrapeTask("BV1xx411c7mD", "none", "", "", "", "time", false, 2, 300); !errors.Is(err, ErrScrapeQueueFull) {
+		t.Fatalf("expected ErrScrapeQueueFull, got %v", err)
+	}
+
+	close(release)
+
+	deadline := time.Now().Add(2 * time.Second)
+	for time.Now().Before(deadline) {
+		stats = service.QueueStats()
+		if stats.Running == 0 && stats.Queued == 0 {
+			break
+		}
+		time.Sleep(10 * time.Millisecond)
+	}
+
+	shutdownCtx, shutdownCancel := context.WithTimeout(context.Background(), 2*time.Second)
+	defer shutdownCancel()
+	if err := service.Shutdown(shutdownCtx); err != nil {
+		t.Fatalf("shutdown: %v", err)
 	}
 }

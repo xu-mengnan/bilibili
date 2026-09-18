@@ -100,9 +100,11 @@ class TasksPage {
 
     renderTaskItem(task) {
         const statusText = {
+            'queued': '排队中',
             'running': '运行中',
             'completed': '已完成',
-            'failed': '失败'
+            'failed': '失败',
+            'cancelled': '已取消'
         };
 
         return `
