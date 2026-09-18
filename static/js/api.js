@@ -102,6 +102,7 @@ const API = {
             const reader = response.body.getReader();
             const decoder = new TextDecoder();
             let buffer = '';
+            let accumulated = '';
             let doneCalled = false;
 
             const read = () => {
@@ -141,7 +142,13 @@ const API = {
 
                                 // 检查错误信号
                                 if (content.startsWith('[ERROR]')) {
-                                    const errorMsg = content.slice(7).trim();
+                                    const rawError = content.slice(7).trim();
+                                    let errorMsg = rawError;
+                                    try {
+                                        errorMsg = JSON.parse(rawError);
+                                    } catch (_) {
+                                        // Legacy/plain-text error payload.
+                                    }
                                     console.error('[API] Error:', errorMsg);
                                     if (!doneCalled) {
                                         doneCalled = true;
@@ -150,10 +157,18 @@ const API = {
                                     return;
                                 }
 
-                                // 处理内容：反转义换行符
-                                const decodedContent = content.replace(/\\n/g, '\n');
-                                console.log('[API] Chunk, length:', decodedContent.length);
-                                onChunk(decodedContent);
+                                // New server payloads are JSON strings so arbitrary
+                                // newlines/backslashes remain valid SSE data.
+                                let decodedContent;
+                                try {
+                                    decodedContent = JSON.parse(content);
+                                } catch (_) {
+                                    // Backward compatibility with the old escaped-text format.
+                                    decodedContent = content.replace(/\\n/g, '\n');
+                                }
+                                accumulated += decodedContent;
+                                console.log('[API] Delta chunk, length:', decodedContent.length);
+                                onChunk(accumulated);
                             }
                         }
 
