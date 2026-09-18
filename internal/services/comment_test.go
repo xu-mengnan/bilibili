@@ -151,6 +151,54 @@ func TestRestartMetadataAndLazyCommentLoad(t *testing.T) {
 	}
 }
 
+
+func TestCleanOldTasksDoesNotDeadlockService(t *testing.T) {
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+
+	store := storage.NewJSONStorage(t.TempDir())
+	service := NewCommentService(ctx, store)
+	defer func() {
+		shutdownCtx, shutdownCancel := context.WithTimeout(context.Background(), 2*time.Second)
+		defer shutdownCancel()
+		if err := service.Shutdown(shutdownCtx); err != nil {
+			t.Fatalf("shutdown: %v", err)
+		}
+	}()
+
+	service.mu.Lock()
+	service.tasks["old"] = &ScrapeTask{
+		TaskID:         "old",
+		Status:         "completed",
+		EndTime:        time.Now().Add(-2 * time.Hour),
+		StartTime:      time.Now().Add(-3 * time.Hour),
+		PageLimit:      2,
+		Comments:       []bilibili.CommentData{},
+		CommentsLoaded: true,
+		Progress:       TaskProgress{PageLimit: 2},
+	}
+	service.mu.Unlock()
+	if err := service.persistTaskByID("old"); err != nil {
+		t.Fatal(err)
+	}
+
+	done := make(chan struct{})
+	go func() {
+		service.CleanOldTasks()
+		close(done)
+	}()
+
+	select {
+	case <-done:
+	case <-time.After(2 * time.Second):
+		t.Fatal("CommentService.CleanOldTasks timed out; possible nested-lock deadlock")
+	}
+
+	if _, err := service.GetTaskProgress("old"); err == nil {
+		t.Fatal("expected old task to be removed")
+	}
+}
+
 func TestCloneCommentsCopiesNestedMutableFields(t *testing.T) {
 	comment := bilibili.CommentData{}
 	comment.Content.Message = "root"
