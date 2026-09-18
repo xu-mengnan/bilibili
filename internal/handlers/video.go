@@ -32,7 +32,7 @@ func (h *VideoHandlers) GetVideoInfoHandler(c *gin.Context) {
 		return
 	}
 
-	videoInfo, err := h.videoService.GetVideoInfo(req.VideoURLOrID)
+	videoInfo, err := h.videoService.GetVideoInfoContext(c.Request.Context(), req.VideoURLOrID)
 	if err != nil {
 		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
 		return
