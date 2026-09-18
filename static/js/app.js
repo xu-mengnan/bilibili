@@ -180,7 +180,7 @@ const App = {
         const hasReplies = comment.replies && comment.replies.length > 0;
         const replyCount = hasReplies ? comment.replies.length : 0;
 
-        const avatar = comment.avatar || '';
+        const avatar = this.safeImageUrl(comment.avatar || '');
         const author = comment.author || '未知用户';
         const content = comment.content || '';
         const likes = comment.likes || 0;
@@ -192,7 +192,7 @@ const App = {
 
         let cardHtml = `
             <div class="comment-header">
-                <img src="${avatar}" alt="${author}" class="comment-avatar">
+                <img src="${avatar}" alt="${this.escapeHtml(author)}" class="comment-avatar">
                 <div class="comment-user-info">
                     <div class="comment-author">${this.escapeHtml(author)}</div>
                     <span class="comment-level">Lv${levelInfo}</span>
@@ -243,7 +243,7 @@ const App = {
     },
 
     renderReplyCard(reply) {
-        const avatar = reply.avatar || '';
+        const avatar = this.safeImageUrl(reply.avatar || '');
         const author = reply.author || '未知用户';
         const content = reply.content || '';
         const likes = reply.likes || 0;
@@ -252,7 +252,7 @@ const App = {
 
         return `
             <div class="reply-card">
-                <img src="${avatar}" alt="${author}" class="reply-avatar">
+                <img src="${avatar}" alt="${this.escapeHtml(author)}" class="reply-avatar">
                 <div class="reply-content">
                     <div class="reply-header">
                         <span class="reply-author">${this.escapeHtml(author)}</span>
@@ -366,6 +366,19 @@ const App = {
             </svg>
             开始爬取
         `;
+    },
+
+    safeImageUrl(value) {
+        if (!value) return '';
+        try {
+            const parsed = new URL(value, window.location.origin);
+            if (parsed.protocol === 'https:') {
+                return parsed.href;
+            }
+        } catch (_) {
+            // Ignore malformed URLs.
+        }
+        return '';
     },
 
     escapeHtml(text) {
