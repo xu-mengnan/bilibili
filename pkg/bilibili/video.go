@@ -1,73 +1,62 @@
 package bilibili
 
 import (
+	"context"
 	"encoding/json"
 	"fmt"
 	"net/url"
 )
 
-// GetVideoByBVID 通过BVID获取视频信息
 func GetVideoByBVID(bvid string) (*VideoResponse, error) {
-	// 构造API URL
-	apiURL := "https://api.bilibili.com/x/web-interface/view"
-
-	// 构造查询参数
-	params := url.Values{}
-	params.Add("bvid", bvid)
-
-	// 完整URL
-	fullURL := apiURL + "?" + params.Encode()
-
-	// 使用公共客户端发送请求
-	client := NewBilibiliClient()
-	body, err := client.SendRequest(fullURL)
-	if err != nil {
-		return nil, err
-	}
-
-	// 解析JSON
-	var videoResp VideoResponse
-	if err := json.Unmarshal(body, &videoResp); err != nil {
-		return nil, fmt.Errorf("解析JSON失败: %v", err)
-	}
-
-	// 检查API是否返回错误
-	if videoResp.Code != 0 {
-		return nil, fmt.Errorf("API返回错误，错误码: %d, 错误信息: %s", videoResp.Code, videoResp.Message)
-	}
-
-	return &videoResp, nil
+	return GetVideoByBVIDContext(context.Background(), bvid)
 }
 
-// GetVideoByAID 通过AID获取视频信息
-func GetVideoByAID(aid int64) (*VideoResponse, error) {
-	// 构造API URL
-	apiURL := "https://api.bilibili.com/x/web-interface/view"
+func GetVideoByBVIDContext(ctx context.Context, bvid string) (*VideoResponse, error) {
+	return getVideoByBVIDContext(ctx, DefaultClient(), bvid)
+}
 
-	// 构造查询参数
+func getVideoByBVIDContext(ctx context.Context, client *BilibiliClient, bvid string) (*VideoResponse, error) {
 	params := url.Values{}
-	params.Add("aid", fmt.Sprintf("%d", aid))
+	params.Set("bvid", bvid)
 
-	// 完整URL
-	fullURL := apiURL + "?" + params.Encode()
-
-	// 使用公共客户端发送请求
-	client := NewBilibiliClient()
-	body, err := client.SendRequest(fullURL)
+	body, err := client.SendRequestContext(ctx, client.videoViewURL+"?"+params.Encode())
 	if err != nil {
 		return nil, err
 	}
 
-	// 解析JSON
-	var videoResp VideoResponse
-	if err := json.Unmarshal(body, &videoResp); err != nil {
-		return nil, fmt.Errorf("解析JSON失败: %v", err)
+	var resp VideoResponse
+	if err := json.Unmarshal(body, &resp); err != nil {
+		return nil, fmt.Errorf("解析视频 JSON 失败: %w", err)
+	}
+	if resp.Code != 0 {
+		return nil, fmt.Errorf("视频 API 返回错误，错误码: %d, 错误信息: %s", resp.Code, resp.Message)
+	}
+	return &resp, nil
+}
+
+func GetVideoByAID(aid int64) (*VideoResponse, error) {
+	return GetVideoByAIDContext(context.Background(), aid)
+}
+
+func GetVideoByAIDContext(ctx context.Context, aid int64) (*VideoResponse, error) {
+	return getVideoByAIDContext(ctx, DefaultClient(), aid)
+}
+
+func getVideoByAIDContext(ctx context.Context, client *BilibiliClient, aid int64) (*VideoResponse, error) {
+	params := url.Values{}
+	params.Set("aid", fmt.Sprintf("%d", aid))
+
+	body, err := client.SendRequestContext(ctx, client.videoViewURL+"?"+params.Encode())
+	if err != nil {
+		return nil, err
 	}
 
-	// 检查API是否返回错误
-	if videoResp.Code != 0 {
-		return nil, fmt.Errorf("API返回错误，错误码: %d, 错误信息: %s", videoResp.Code, videoResp.Message)
+	var resp VideoResponse
+	if err := json.Unmarshal(body, &resp); err != nil {
+		return nil, fmt.Errorf("解析视频 JSON 失败: %w", err)
 	}
-
-	return &videoResp, nil
+	if resp.Code != 0 {
+		return nil, fmt.Errorf("视频 API 返回错误，错误码: %d, 错误信息: %s", resp.Code, resp.Message)
+	}
+	return &resp, nil
 }
