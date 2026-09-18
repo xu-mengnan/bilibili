@@ -83,7 +83,7 @@ func SetupRoutes(ctx context.Context, cfg *config.Config) (*gin.Engine, *Service
 		userIDStr := c.Param("id")
 		userID, err := strconv.Atoi(userIDStr)
 		if err != nil {
-			c.JSON(http.StatusBadRequest, gin.H{"error": "Invalid user ID"})
+			handlers.RespondBadRequest(c, "Invalid user ID")
 			return
 		}
 
@@ -91,12 +91,12 @@ func SetupRoutes(ctx context.Context, cfg *config.Config) (*gin.Engine, *Service
 		user, err := svc.GetUserByID(userID)
 		if err != nil {
 			utils.LogError("Failed to get user: " + err.Error())
-			c.JSON(http.StatusInternalServerError, gin.H{"error": "Internal Server Error"})
+			handlers.RespondInternalError(c, "Internal Server Error", err)
 			return
 		}
 
 		if user == nil {
-			c.JSON(http.StatusNotFound, gin.H{"error": "User not found"})
+			handlers.RespondNotFound(c, "User not found")
 			return
 		}
 
