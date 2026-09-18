@@ -113,7 +113,7 @@ func SetupRoutes(ctx context.Context, cfg *config.Config) (*gin.Engine, *Service
 		apiGroup.GET("/comments/result/:task_id", commentHandlers.GetResultHandler)
 		apiGroup.POST("/comments/export", commentHandlers.ExportCommentsHandler)
 		apiGroup.GET("/comments/stats/:task_id", commentHandlers.GetCommentsStatsHandler)
-		apiGroup.GET("/tasks/all", commentHandlers.GetAllTasksHandler) // 获取所有任务
+		apiGroup.GET("/tasks/all", middleware.DeprecatedAPI("/api/v2/tasks"), commentHandlers.GetAllTasksHandler) // 获取所有任务
 
 		// 下载文件
 		apiGroup.GET("/download/:file_id", commentHandlers.DownloadFileHandler)
@@ -122,12 +122,12 @@ func SetupRoutes(ctx context.Context, cfg *config.Config) (*gin.Engine, *Service
 		apiGroup.POST("/videos/info", videoHandlers.GetVideoInfoHandler)
 
 		// AI分析相关
-		apiGroup.GET("/analysis/templates", analysisHandlers.GetTemplatesHandler)
+		apiGroup.GET("/analysis/templates", middleware.DeprecatedAPI("/api/v2/templates"), analysisHandlers.GetTemplatesHandler)
 		apiGroup.POST("/analysis/analyze", analysisHandlers.AnalyzeHandler)
-		apiGroup.POST("/analysis/analyze-stream", analysisHandlers.AnalyzeStreamHandler)
-		apiGroup.GET("/analysis/tasks/completed", analysisHandlers.CompletedTasksHandler)
+		apiGroup.POST("/analysis/analyze-stream", middleware.DeprecatedAPI("/api/v2/analyze-stream"), analysisHandlers.AnalyzeStreamHandler)
+		apiGroup.GET("/analysis/tasks/completed", middleware.DeprecatedAPI("/api/v2/tasks"), analysisHandlers.CompletedTasksHandler)
 		apiGroup.GET("/analysis/tasks/:task_id", analysisHandlers.GetCommentsForAnalysisHandler)
-		apiGroup.POST("/analysis/preview", analysisHandlers.PreviewPromptHandler)
+		apiGroup.POST("/analysis/preview", middleware.DeprecatedAPI("/api/v2/preview"), analysisHandlers.PreviewPromptHandler)
 	}
 
 	// V2 API - 为新版前端页面服务（更简洁的响应格式）
