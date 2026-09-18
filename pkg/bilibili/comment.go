@@ -6,7 +6,6 @@ import (
 	"fmt"
 	"io"
 	"net/url"
-	"time"
 )
 
 type CommentOptions struct {
@@ -288,16 +287,6 @@ func GetAllCommentsContext(ctx context.Context, oid int64, commentOptions ...Com
 
 		if paginator.Done() {
 			break
-		}
-
-		timer := time.NewTimer(300 * time.Millisecond)
-		select {
-		case <-timer.C:
-		case <-ctx.Done():
-			if !timer.Stop() {
-				<-timer.C
-			}
-			return nil, ctx.Err()
 		}
 	}
 	return all, nil
