@@ -1,0 +1,16 @@
+{
+  "server": {
+    "port": 8080,
+    "host": "127.0.0.1"
+  },
+  "ai": {
+    "api_url": "https://open.bigmodel.cn/api/paas/v4/chat/completions",
+    "api_key": "",
+    "model": "glm-4-flash"
+  },
+  "storage": {
+    "data_dir": "./data",
+    "auto_save": true,
+    "save_interval": 30
+  }
+}
