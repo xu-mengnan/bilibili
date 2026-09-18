@@ -4,7 +4,6 @@ import (
 	"fmt"
 	"io"
 	"net/http"
-	"strings"
 	"time"
 
 	"bilibili/internal/services"
@@ -206,7 +205,9 @@ func (h *V2Handlers) AnalyzeStreamHandlerV2(c *gin.Context) {
 		return
 	}
 
-	// 设置SSE响应头
+	commentsText := h.analysisService.FormatComments(task.Comments, req.CommentLimit)
+	prompt := h.analysisService.RenderTemplate(template, commentsText, task.VideoTitle, len(task.Comments))
+
 	c.Writer.Header().Set("Content-Type", "text/event-stream")
 	c.Writer.Header().Set("Cache-Control", "no-cache")
 	c.Writer.Header().Set("Connection", "keep-alive")
@@ -218,50 +219,35 @@ func (h *V2Handlers) AnalyzeStreamHandlerV2(c *gin.Context) {
 		return
 	}
 
-	// 创建通道
-	streamChan := make(chan string, 100)
-	errorChan := make(chan error, 1)
+	events := runAnalysisStream(c.Request.Context(), h.analysisService, prompt)
+	heartbeat := time.NewTicker(15 * time.Second)
+	defer heartbeat.Stop()
 
-	// 在goroutine中执行分析
-	go func() {
-		commentsText := h.analysisService.FormatComments(task.Comments, req.CommentLimit)
-		prompt := h.analysisService.RenderTemplate(template, commentsText, task.VideoTitle, len(task.Comments))
-
-		_, err := h.analysisService.CallLLMStream(c.Request.Context(), func(chunk string) {
-			streamChan <- chunk
-		}, prompt)
-
-		if err != nil {
-			errorChan <- err
-			return
-		}
-
-		// 发送完成标记
-		streamChan <- "__DONE__"
-	}()
-
-	// 发送SSE（简化格式：直接发送文本内容）
 	c.Stream(func(w io.Writer) bool {
 		select {
-		case chunk := <-streamChan:
-			if chunk == "__DONE__" {
-				// 发送完成信号
-				fmt.Fprintf(w, "data: [DONE]\n\n")
+		case event, ok := <-events:
+			if !ok {
+				return false
+			}
+			if event.Err != nil {
+				data, _ := json.Marshal(event.Err.Error())
+				fmt.Fprintf(w, "data: [ERROR] %s\n\n", data)
 				flusher.Flush()
 				return false
 			}
-			// 直接发送文本内容，不进行JSON编码
-			// 需要转义特殊字符
-			escapedChunk := strings.ReplaceAll(chunk, "\n", "\\n")
-			fmt.Fprintf(w, "data: %s\n\n", escapedChunk)
+			if event.Done {
+				fmt.Fprint(w, "data: [DONE]\n\n")
+				flusher.Flush()
+				return false
+			}
+			data, _ := json.Marshal(event.Chunk)
+			fmt.Fprintf(w, "data: %s\n\n", data)
 			flusher.Flush()
 			return true
-		case err := <-errorChan:
-			// 发送错误
-			errorMsg := strings.ReplaceAll(err.Error(), "\n", " ")
-			fmt.Fprintf(w, "data: [ERROR] %s\n\n", errorMsg)
+		case <-heartbeat.C:
+			fmt.Fprint(w, ": heartbeat\n\n")
 			flusher.Flush()
-			return false
+			return true
 		case <-c.Request.Context().Done():
 			return false
 		}
