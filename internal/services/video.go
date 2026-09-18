@@ -29,15 +29,15 @@ type VideoInfo struct {
 	Description   string `json:"description"`
 }
 
-func (vs *VideoService) ParseVideoInput(input string) (videoID string, videoType string, err error) {
+func ParseVideoInput(input string) (videoID string, videoType string, err error) {
 	input = strings.TrimSpace(input)
 
-	bvPattern := regexp.MustCompile(`(BV[a-zA-Z0-9]+)`)
+	bvPattern := regexp.MustCompile(`(BV[a-zA-Z0-9]{10})(?:[^a-zA-Z0-9]|$)`)
 	if matches := bvPattern.FindStringSubmatch(input); len(matches) > 0 {
 		return matches[1], "bv", nil
 	}
 
-	avPattern := regexp.MustCompile(`[aA][vV](\d+)`)
+	avPattern := regexp.MustCompile(`(?i)(?:^|[^a-z0-9])av(\d+)(?:[^0-9]|$)`)
 	if matches := avPattern.FindStringSubmatch(input); len(matches) > 0 {
 		return matches[1], "av", nil
 	}
@@ -45,7 +45,11 @@ func (vs *VideoService) ParseVideoInput(input string) (videoID string, videoType
 	if regexp.MustCompile(`^\d+$`).MatchString(input) {
 		return input, "av", nil
 	}
-	return "", "", fmt.Errorf("invalid video ID format: %s", input)
+	return "", "", fmt.Errorf("invalid video ID format")
+}
+
+func (vs *VideoService) ParseVideoInput(input string) (videoID string, videoType string, err error) {
+	return ParseVideoInput(input)
 }
 
 func (vs *VideoService) GetVideoInfo(input string) (*VideoInfo, error) {
