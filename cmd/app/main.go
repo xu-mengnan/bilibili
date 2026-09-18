@@ -28,7 +28,7 @@ func main() {
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
 
-	router, services := api.SetupRoutes(ctx)
+	router, services := api.SetupRoutes(ctx, cfg)
 	addr := net.JoinHostPort(cfg.Server.Host, strconv.Itoa(cfg.Server.Port))
 
 	server := &http.Server{

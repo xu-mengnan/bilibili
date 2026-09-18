@@ -64,6 +64,26 @@ func NewAnalysisService(apiURL, apiKey, model string) *AnalysisService {
 	}
 }
 
+func (s *AnalysisService) Ready() error {
+	if s == nil {
+		return fmt.Errorf("analysis service is nil")
+	}
+	if strings.TrimSpace(s.apiURL) == "" {
+		return fmt.Errorf("analysis API URL is empty")
+	}
+	if strings.TrimSpace(s.model) == "" {
+		return fmt.Errorf("analysis model is empty")
+	}
+	return nil
+}
+
+func (s *AnalysisService) Mode() string {
+	if s == nil || strings.TrimSpace(s.apiKey) == "" {
+		return "mock"
+	}
+	return "provider"
+}
+
 // PromptTemplate Prompt模板
 type PromptTemplate struct {
 	ID          string   `json:"id"`

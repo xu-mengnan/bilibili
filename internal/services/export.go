@@ -139,6 +139,31 @@ func (es *ExportService) ExportComments(comments []bilibili.CommentData, format,
 	return exportFile, nil
 }
 
+func (es *ExportService) Ready() error {
+	if es == nil {
+		return fmt.Errorf("export service is nil")
+	}
+	if err := es.ctx.Err(); err != nil {
+		return fmt.Errorf("export service stopped: %w", err)
+	}
+	if err := os.MkdirAll(es.exportDir, 0755); err != nil {
+		return fmt.Errorf("export directory unavailable: %w", err)
+	}
+	tmp, err := os.CreateTemp(es.exportDir, ".ready-*")
+	if err != nil {
+		return fmt.Errorf("export directory not writable: %w", err)
+	}
+	name := tmp.Name()
+	if err := tmp.Close(); err != nil {
+		_ = os.Remove(name)
+		return fmt.Errorf("close export readiness file: %w", err)
+	}
+	if err := os.Remove(name); err != nil {
+		return fmt.Errorf("remove export readiness file: %w", err)
+	}
+	return nil
+}
+
 func (es *ExportService) GetExportFile(fileID string) (*ExportFile, error) {
 	es.mu.RLock()
 	defer es.mu.RUnlock()
