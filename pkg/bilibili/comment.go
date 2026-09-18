@@ -1,348 +1,337 @@
 package bilibili
 
 import (
+	"context"
 	"encoding/json"
 	"fmt"
+	"io"
 	"net/url"
 	"time"
 )
 
-// CommentOptions 评论请求配置选项
 type CommentOptions struct {
 	client   *BilibiliClient
-	sortMode string // "time" 按时间, "hot" 按热度
+	sortMode string
 }
 
-// CommentOption 评论选项类型
 type CommentOption func(*CommentOptions)
 
-// WithCookie Cookie认证选项
-func WithCookie(sessdata string) CommentOption {
+func WithClient(client *BilibiliClient) CommentOption {
 	return func(opts *CommentOptions) {
-		if opts.client == nil {
-			opts.client = NewBilibiliClient()
+		if client != nil {
+			opts.client = client.Clone()
 		}
-		opts.client.SetCookies(map[string]string{
-			"SESSDATA": sessdata,
-		})
 	}
 }
 
-// WithAppAuth APP认证选项
+func WithCookie(sessdata string) CommentOption {
+	return func(opts *CommentOptions) {
+		ensureCommentClient(opts)
+		opts.client.SetCookies(map[string]string{"SESSDATA": sessdata})
+	}
+}
+
 func WithAppAuth(appkey, appsec string) CommentOption {
 	return func(opts *CommentOptions) {
-		if opts.client == nil {
-			opts.client = NewBilibiliClient()
-		}
+		ensureCommentClient(opts)
 		opts.client.SetAppAuth(appkey, appsec)
 	}
 }
 
-// WithSortMode 排序模式选项
-// sortMode: "time" 按时间排序, "hot" 按热度排序
 func WithSortMode(sortMode string) CommentOption {
 	return func(opts *CommentOptions) {
 		opts.sortMode = sortMode
 	}
 }
 
-// AuthOption 认证选项类型 (保持向后兼容)
 type AuthOption = CommentOption
 
-// GetComments 获取视频评论 (使用wbi/main端点)
-// next: 用于翻页的游标值（从上一页响应的 Cursor.Next 获取）
-// nextOffset: 可选的 next_offset 字符串（从上一页响应的 Cursor.PaginationReply.NextOffset 获取）
-func GetComments(oid int64, pn int, ps int, next int, commentOptions ...CommentOption) (*CommentResponse, error) {
-	return GetCommentsWithOffset(oid, pn, ps, next, "", commentOptions...)
-}
-
-// GetCommentsWithOffset 获取视频评论（支持 next_offset 字符串）
-func GetCommentsWithOffset(oid int64, pn int, ps int, next int, nextOffset string, commentOptions ...CommentOption) (*CommentResponse, error) {
-	// 处理选项
-	opts := &CommentOptions{
-		sortMode: "time", // 默认按时间排序
-	}
-	for _, option := range commentOptions {
-		option(opts)
-	}
-
-	// 如果没有提供客户端，创建一个新的
+func ensureCommentClient(opts *CommentOptions) {
 	if opts.client == nil {
-		opts.client = NewBilibiliClient()
+		opts.client = DefaultClient()
 	}
-
-	// 构造API URL (使用wbi/main端点)
-	apiURL := "https://api.bilibili.com/x/v2/reply/main"
-
-	// 构造查询参数
-	params := url.Values{}
-	params.Add("oid", fmt.Sprintf("%d", oid))
-
-	// 构造 pagination_str 参数
-	if pn == 1 || (next == 0 && nextOffset == "") {
-		// 第一页时 pagination_str 使用默认格式
-		params.Add("pagination_str", `{"offset":"{\"type\":1,\"direction\":1,\"data\":{}}"}`)
-	} else if nextOffset != "" {
-		// 如果提供了 next_offset 字符串，直接使用它
-		// next_offset 可能已经是 JSON 编码的字符串，需要检查格式
-		// 如果 nextOffset 已经是完整的 pagination_str 格式，直接使用
-		// 否则包装成正确的格式
-		var paginationStr string
-		if len(nextOffset) > 0 && nextOffset[0] == '{' {
-			// 如果已经是 JSON 对象格式，直接使用
-			paginationStr = nextOffset
-		} else {
-			// 否则包装成 {"offset":"..."} 格式，需要对 nextOffset 进行 JSON 转义
-			// 使用 JSON 编码确保特殊字符被正确转义
-			offsetJSON, _ := json.Marshal(nextOffset)
-			paginationStr = fmt.Sprintf(`{"offset":%s}`, string(offsetJSON))
-		}
-		params.Add("pagination_str", paginationStr)
-	} else {
-		// 使用 next 值构造 pagination_str
-		// 尝试使用 cursor 格式
-		paginationStr := fmt.Sprintf(`{"offset":"{\"type\":1,\"direction\":1,\"data\":{\"cursor\":%d}}"}`, next)
-		params.Add("pagination_str", paginationStr)
-	}
-
-	params.Add("type", "1") // 视频评论类型
-
-	// 根据排序模式设置 mode 参数
-	// mode=2: 按时间排序, mode=3: 按热度排序
-	if opts.sortMode == "hot" {
-		params.Add("mode", "3")
-	} else {
-		params.Add("mode", "2") // 默认按时间排序
-	}
-
-	// 获取WBI密钥并签名参数
-	wbiKey := GetWBIKey()
-	signedParams := SignParams(params, wbiKey)
-
-	// 完整URL
-	fullURL := apiURL + "?" + signedParams.Encode()
-
-	body, err := opts.client.SendRequest(fullURL)
-	if err != nil {
-		return nil, err
-	}
-
-	// 解析JSON
-	var commentResp CommentResponse
-	if err := json.Unmarshal(body, &commentResp); err != nil {
-		return nil, fmt.Errorf("解析JSON失败: %v", err)
-	}
-
-	// 检查API是否返回错误
-	if commentResp.Code != 0 {
-		// 如果是权限错误，尝试使用备用接口
-		if commentResp.Code == -403 {
-			fmt.Println("权限错误，尝试使用备用接口获取评论...")
-			return GetCommentsFallback(oid, pn, ps, commentOptions...)
-		}
-		return nil, fmt.Errorf("API返回错误，错误码: %d, 错误信息: %s", commentResp.Code, commentResp.Message)
-	}
-
-	return &commentResp, nil
 }
 
-// GetCommentsFallback 备用方法，使用原始reply接口
-func GetCommentsFallback(oid int64, pn int, ps int, commentOptions ...CommentOption) (*CommentResponse, error) {
-	// 处理选项
+func resolveCommentOptions(commentOptions ...CommentOption) *CommentOptions {
 	opts := &CommentOptions{
-		sortMode: "time", // 默认按时间排序
-	}
-	for _, option := range commentOptions {
-		option(opts)
-	}
-
-	// 如果没有提供客户端，创建一个新的
-	if opts.client == nil {
-		opts.client = NewBilibiliClient()
-	}
-
-	// 构造API URL (使用原始reply接口)
-	apiURL := "https://api.bilibili.com/x/v2/reply"
-
-	// 构造查询参数
-	params := url.Values{}
-	params.Add("oid", fmt.Sprintf("%d", oid))
-	params.Add("pn", fmt.Sprintf("%d", pn)) // fallback接口使用pn参数
-	params.Add("ps", fmt.Sprintf("%d", ps))
-	params.Add("type", "1") // 视频评论类型
-
-	// 根据排序模式设置 sort 参数
-	// sort=2: 按时间倒序排序, sort=1: 按热度排序
-	if opts.sortMode == "hot" {
-		params.Add("sort", "1")
-	} else {
-		params.Add("sort", "2") // 默认按时间倒序排序
-	}
-
-	// 获取WBI密钥并签名参数
-	wbiKey := GetWBIKey()
-	signedParams := SignParams(params, wbiKey)
-
-	// 完整URL
-	fullURL := apiURL + "?" + signedParams.Encode()
-
-	body, err := opts.client.SendRequest(fullURL)
-	if err != nil {
-		return nil, err
-	}
-
-	// 解析JSON
-	var commentResp CommentResponse
-	if err := json.Unmarshal(body, &commentResp); err != nil {
-		return nil, fmt.Errorf("解析JSON失败: %v", err)
-	}
-
-	// 检查API是否返回错误
-	if commentResp.Code != 0 {
-		return nil, fmt.Errorf("API返回错误，错误码: %d, 错误信息: %s", commentResp.Code, commentResp.Message)
-	}
-
-	return &commentResp, nil
-}
-
-// GetHotComments 获取视频的热门评论 (使用main端点)
-// 已废弃: 推荐使用 GetComments 配合 WithSortMode("hot") 选项
-func GetHotComments(oid int64, pn int, ps int, commentOptions ...CommentOption) (*CommentResponse, error) {
-	// 添加热门排序选项
-	opts := append(commentOptions, WithSortMode("hot"))
-	return GetComments(oid, pn, ps, 0, opts...)
-}
-
-// GetAllComments 获取视频的所有评论
-// 支持通过 WithSortMode("hot") 或 WithSortMode("time") 设置排序模式，默认按时间排序
-func GetAllComments(oid int64, commentOptions ...CommentOption) ([]CommentData, error) {
-	// 使用map来去重，以RPID为键
-	uniqueComments := make(map[int64]CommentData)
-	var allComments []CommentData
-
-	// 先使用main接口获取第一页评论
-	firstPage, err := GetComments(oid, 1, 20, 0, commentOptions...)
-	if err != nil {
-		return nil, fmt.Errorf("获取第一页评论失败: %v", err)
-	}
-
-	// 添加第一页评论到结果中（去重）
-	for _, comment := range firstPage.Data.Replies {
-		if _, exists := uniqueComments[comment.RPID]; !exists {
-			uniqueComments[comment.RPID] = comment
-			allComments = append(allComments, comment)
-		}
-	}
-
-	// 计算总评论数
-	totalCount := firstPage.Data.Cursor.AllCount
-	pageSize := 20
-	totalPages := (totalCount + pageSize - 1) / pageSize // 向上取整
-
-	// 确定排序模式文字描述
-	sortModeText := "时间"
-	for _, opt := range commentOptions {
-		testOpts := &CommentOptions{}
-		opt(testOpts)
-		if testOpts.sortMode == "hot" {
-			sortModeText = "热门"
-			break
-		}
-	}
-
-	fmt.Printf("总评论数: %d, 总页数: %d, 排序模式: %s\n", totalCount, totalPages, sortModeText)
-
-	// 获取剩余页的评论
-	for page := 2; page <= totalPages && page <= 100; page++ { // 限制最多获取100页以避免过多请求
-		// 添加延迟避免请求过于频繁
-		time.Sleep(300 * time.Millisecond)
-
-		fmt.Printf("正在获取第 %d 页评论...\n", page)
-
-		resp, err := GetComments(oid, page, pageSize, 0, commentOptions...)
-		if err != nil {
-			// 如果某页获取失败，记录错误并继续获取下一页
-			fmt.Printf("获取第%d页评论失败: %v\n", page, err)
-			continue
-		}
-
-		// 输出调试信息
-		fmt.Printf("第%d页返回%d条评论\n", page, len(resp.Data.Replies))
-
-		// 添加评论到结果中（去重）
-		addedCount := 0
-		for _, comment := range resp.Data.Replies {
-			if _, exists := uniqueComments[comment.RPID]; !exists {
-				uniqueComments[comment.RPID] = comment
-				allComments = append(allComments, comment)
-				addedCount++
-			}
-		}
-
-		fmt.Printf("第%d页获取到%d条不重复的评论\n", page, addedCount)
-
-		// 如果某页没有返回数据，跳出循环
-		if len(resp.Data.Replies) == 0 {
-			fmt.Printf("第%d页没有返回数据，停止获取\n", page)
-			break
-		}
-	}
-
-	return allComments, nil
-}
-
-// GetSubComments 获取评论的子评论（最多3条）
-// oid: 视频aid
-// root: 根评论的rpid
-// commentOptions: 可选的认证选项
-func GetSubComments(oid int64, root int64, commentOptions ...CommentOption) ([]CommentData, error) {
-	// 处理选项
-	opts := &CommentOptions{
+		client:   DefaultClient(),
 		sortMode: "time",
 	}
 	for _, option := range commentOptions {
 		option(opts)
 	}
+	ensureCommentClient(opts)
+	return opts
+}
 
-	// 如果没有提供客户端，创建一个新的
-	if opts.client == nil {
-		opts.client = NewBilibiliClient()
+func GetComments(oid int64, pn int, ps int, next int, commentOptions ...CommentOption) (*CommentResponse, error) {
+	return GetCommentsContext(context.Background(), oid, pn, ps, next, commentOptions...)
+}
+
+func GetCommentsContext(ctx context.Context, oid int64, pn int, ps int, next int, commentOptions ...CommentOption) (*CommentResponse, error) {
+	return GetCommentsWithOffsetContext(ctx, oid, pn, ps, next, "", commentOptions...)
+}
+
+func GetCommentsWithOffset(oid int64, pn int, ps int, next int, nextOffset string, commentOptions ...CommentOption) (*CommentResponse, error) {
+	return GetCommentsWithOffsetContext(context.Background(), oid, pn, ps, next, nextOffset, commentOptions...)
+}
+
+func GetCommentsWithOffsetContext(ctx context.Context, oid int64, pn int, ps int, next int, nextOffset string, commentOptions ...CommentOption) (*CommentResponse, error) {
+	opts := resolveCommentOptions(commentOptions...)
+	resp, _, err := fetchMainComments(ctx, opts, oid, pn, ps, next, nextOffset)
+	return resp, err
+}
+
+func fetchMainComments(ctx context.Context, opts *CommentOptions, oid int64, pn int, ps int, next int, nextOffset string) (*CommentResponse, bool, error) {
+	params := url.Values{}
+	params.Set("oid", fmt.Sprintf("%d", oid))
+	params.Set("type", "1")
+	if opts.sortMode == "hot" {
+		params.Set("mode", "3")
+	} else {
+		params.Set("mode", "2")
 	}
 
-	// 构造API URL (获取子评论的端点)
-	apiURL := "https://api.bilibili.com/x/v2/reply/reply"
+	switch {
+	case pn <= 1:
+		params.Set("pagination_str", `{"offset":"{\"type\":1,\"direction\":1,\"data\":{}}"}`)
+	case nextOffset != "":
+		if nextOffset[0] == '{' {
+			params.Set("pagination_str", nextOffset)
+		} else {
+			offsetJSON, err := json.Marshal(nextOffset)
+			if err != nil {
+				return nil, false, fmt.Errorf("编码 next_offset 失败: %w", err)
+			}
+			params.Set("pagination_str", fmt.Sprintf(`{"offset":%s}`, string(offsetJSON)))
+		}
+	case next != 0:
+		params.Set("pagination_str", fmt.Sprintf(`{"offset":"{\"type\":1,\"direction\":1,\"data\":{\"cursor\":%d}}"}`, next))
+	default:
+		return nil, false, fmt.Errorf("missing pagination cursor for page %d", pn)
+	}
 
-	// 构造查询参数
+	signedParams, err := opts.client.signParams(ctx, params)
+	if err != nil {
+		return nil, false, fmt.Errorf("WBI 签名失败: %w", err)
+	}
+
+	body, err := opts.client.SendRequestContext(ctx, opts.client.replyMainURL+"?"+signedParams.Encode())
+	if err != nil {
+		return nil, false, err
+	}
+
+	var resp CommentResponse
+	if err := json.Unmarshal(body, &resp); err != nil {
+		return nil, false, fmt.Errorf("解析评论 JSON 失败: %w", err)
+	}
+	if resp.Code == -403 {
+		fallback, err := fetchFallbackComments(ctx, opts, oid, pn, ps)
+		return fallback, true, err
+	}
+	if resp.Code != 0 {
+		return nil, false, fmt.Errorf("评论 API 返回错误，错误码: %d, 错误信息: %s", resp.Code, resp.Message)
+	}
+	return &resp, false, nil
+}
+
+func GetCommentsFallback(oid int64, pn int, ps int, commentOptions ...CommentOption) (*CommentResponse, error) {
+	return GetCommentsFallbackContext(context.Background(), oid, pn, ps, commentOptions...)
+}
+
+func GetCommentsFallbackContext(ctx context.Context, oid int64, pn int, ps int, commentOptions ...CommentOption) (*CommentResponse, error) {
+	return fetchFallbackComments(ctx, resolveCommentOptions(commentOptions...), oid, pn, ps)
+}
+
+func fetchFallbackComments(ctx context.Context, opts *CommentOptions, oid int64, pn int, ps int) (*CommentResponse, error) {
 	params := url.Values{}
-	params.Add("oid", fmt.Sprintf("%d", oid))
-	params.Add("root", fmt.Sprintf("%d", root))
-	params.Add("type", "1") // 视频评论类型
-	params.Add("pn", "1")   // 第一页
-	params.Add("ps", "3")   // 每页3条
+	params.Set("oid", fmt.Sprintf("%d", oid))
+	params.Set("pn", fmt.Sprintf("%d", pn))
+	params.Set("ps", fmt.Sprintf("%d", ps))
+	params.Set("type", "1")
+	if opts.sortMode == "hot" {
+		params.Set("sort", "1")
+	} else {
+		params.Set("sort", "2")
+	}
 
-	// 获取WBI密钥并签名参数
-	wbiKey := GetWBIKey()
-	signedParams := SignParams(params, wbiKey)
-
-	// 完整URL
-	fullURL := apiURL + "?" + signedParams.Encode()
-
-	body, err := opts.client.SendRequest(fullURL)
+	signedParams, err := opts.client.signParams(ctx, params)
+	if err != nil {
+		return nil, fmt.Errorf("WBI 签名失败: %w", err)
+	}
+	body, err := opts.client.SendRequestContext(ctx, opts.client.replyFallbackURL+"?"+signedParams.Encode())
 	if err != nil {
 		return nil, err
 	}
 
-	// 解析JSON
-	var commentResp CommentResponse
-	if err := json.Unmarshal(body, &commentResp); err != nil {
-		return nil, fmt.Errorf("解析JSON失败: %v", err)
+	var resp CommentResponse
+	if err := json.Unmarshal(body, &resp); err != nil {
+		return nil, fmt.Errorf("解析备用评论 JSON 失败: %w", err)
+	}
+	if resp.Code != 0 {
+		return nil, fmt.Errorf("备用评论 API 返回错误，错误码: %d, 错误信息: %s", resp.Code, resp.Message)
+	}
+	return &resp, nil
+}
+
+func GetHotComments(oid int64, pn int, ps int, commentOptions ...CommentOption) (*CommentResponse, error) {
+	opts := append(commentOptions, WithSortMode("hot"))
+	return GetComments(oid, pn, ps, 0, opts...)
+}
+
+// CommentPaginator is the single source of truth for comment pagination.
+// It carries cursor/next_offset between pages and transparently sticks to the
+// fallback page-number API when the main endpoint returns -403.
+type CommentPaginator struct {
+	oid      int64
+	pageSize int
+	maxPages int
+	page     int
+
+	nextCursor int
+	nextOffset string
+	done       bool
+	fallback   bool
+	opts       *CommentOptions
+}
+
+func NewCommentPaginator(oid int64, pageSize, maxPages int, commentOptions ...CommentOption) *CommentPaginator {
+	if pageSize <= 0 {
+		pageSize = 20
+	}
+	if maxPages <= 0 {
+		maxPages = 100
+	}
+	return &CommentPaginator{
+		oid:      oid,
+		pageSize: pageSize,
+		maxPages: maxPages,
+		opts:     resolveCommentOptions(commentOptions...),
+	}
+}
+
+func (p *CommentPaginator) Next(ctx context.Context) (*CommentResponse, error) {
+	if p == nil || p.done || p.page >= p.maxPages {
+		return nil, io.EOF
+	}
+	nextPage := p.page + 1
+
+	var (
+		resp         *CommentResponse
+		usedFallback bool
+		err          error
+	)
+	if p.fallback {
+		resp, err = fetchFallbackComments(ctx, p.opts, p.oid, nextPage, p.pageSize)
+		usedFallback = true
+	} else {
+		resp, usedFallback, err = fetchMainComments(ctx, p.opts, p.oid, nextPage, p.pageSize, p.nextCursor, p.nextOffset)
+	}
+	if err != nil {
+		return nil, err
 	}
 
-	// 检查API是否返回错误
-	if commentResp.Code != 0 {
-		// 子评论获取失败不应该导致整个任务失败，返回空列表
+	p.page = nextPage
+	if usedFallback {
+		p.fallback = true
+		total := resp.Data.Page.Count
+		if len(resp.Data.Replies) == 0 || (total > 0 && p.page*p.pageSize >= total) || p.page >= p.maxPages {
+			p.done = true
+		}
+		return resp, nil
+	}
+
+	p.nextCursor = resp.Data.Cursor.Next
+	p.nextOffset = resp.Data.Cursor.PaginationReply.NextOffset
+	if (p.nextCursor == 0 && p.nextOffset == "") || p.page >= p.maxPages {
+		p.done = true
+	}
+	return resp, nil
+}
+
+func (p *CommentPaginator) Done() bool {
+	return p == nil || p.done
+}
+
+func (p *CommentPaginator) Page() int {
+	if p == nil {
+		return 0
+	}
+	return p.page
+}
+
+func GetAllComments(oid int64, commentOptions ...CommentOption) ([]CommentData, error) {
+	return GetAllCommentsContext(context.Background(), oid, commentOptions...)
+}
+
+func GetAllCommentsContext(ctx context.Context, oid int64, commentOptions ...CommentOption) ([]CommentData, error) {
+	paginator := NewCommentPaginator(oid, 20, 100, commentOptions...)
+	unique := make(map[int64]struct{})
+	all := make([]CommentData, 0)
+
+	for {
+		resp, err := paginator.Next(ctx)
+		if err == io.EOF {
+			break
+		}
+		if err != nil {
+			return nil, fmt.Errorf("获取第 %d 页评论失败: %w", paginator.Page()+1, err)
+		}
+
+		for _, comment := range resp.Data.Replies {
+			if _, exists := unique[comment.RPID]; exists {
+				continue
+			}
+			unique[comment.RPID] = struct{}{}
+			all = append(all, comment)
+		}
+
+		if paginator.Done() {
+			break
+		}
+
+		timer := time.NewTimer(300 * time.Millisecond)
+		select {
+		case <-timer.C:
+		case <-ctx.Done():
+			if !timer.Stop() {
+				<-timer.C
+			}
+			return nil, ctx.Err()
+		}
+	}
+	return all, nil
+}
+
+func GetSubComments(oid int64, root int64, commentOptions ...CommentOption) ([]CommentData, error) {
+	return GetSubCommentsContext(context.Background(), oid, root, commentOptions...)
+}
+
+func GetSubCommentsContext(ctx context.Context, oid int64, root int64, commentOptions ...CommentOption) ([]CommentData, error) {
+	opts := resolveCommentOptions(commentOptions...)
+	params := url.Values{}
+	params.Set("oid", fmt.Sprintf("%d", oid))
+	params.Set("root", fmt.Sprintf("%d", root))
+	params.Set("type", "1")
+	params.Set("pn", "1")
+	params.Set("ps", "3")
+
+	signedParams, err := opts.client.signParams(ctx, params)
+	if err != nil {
+		return nil, fmt.Errorf("WBI 签名失败: %w", err)
+	}
+	body, err := opts.client.SendRequestContext(ctx, opts.client.subReplyURL+"?"+signedParams.Encode())
+	if err != nil {
+		return nil, err
+	}
+
+	var resp CommentResponse
+	if err := json.Unmarshal(body, &resp); err != nil {
+		return nil, fmt.Errorf("解析子评论 JSON 失败: %w", err)
+	}
+	if resp.Code != 0 {
+		// 子评论失败不应中断主评论任务。
 		return []CommentData{}, nil
 	}
-
-	return commentResp.Data.Replies, nil
+	return resp.Data.Replies, nil
 }
