@@ -33,6 +33,33 @@ func (js *JSONStorage) Initialize() error {
 	return js.initializeLocked()
 }
 
+func (js *JSONStorage) CheckReady() error {
+	js.mu.Lock()
+	defer js.mu.Unlock()
+
+	if err := js.initializeLocked(); err != nil {
+		return err
+	}
+	tmp, err := os.CreateTemp(js.tasksDir, ".ready-*")
+	if err != nil {
+		return fmt.Errorf("任务存储不可写: %w", err)
+	}
+	name := tmp.Name()
+	if _, err := tmp.Write([]byte("ok")); err != nil {
+		_ = tmp.Close()
+		_ = os.Remove(name)
+		return fmt.Errorf("任务存储写入失败: %w", err)
+	}
+	if err := tmp.Close(); err != nil {
+		_ = os.Remove(name)
+		return fmt.Errorf("任务存储关闭测试文件失败: %w", err)
+	}
+	if err := os.Remove(name); err != nil {
+		return fmt.Errorf("任务存储清理测试文件失败: %w", err)
+	}
+	return nil
+}
+
 func (js *JSONStorage) initializeLocked() error {
 	for _, dir := range []string{js.tasksDir, filepath.Join(js.tasksDir, ".backup")} {
 		if err := os.MkdirAll(dir, 0755); err != nil {
