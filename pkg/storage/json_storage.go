@@ -3,20 +3,23 @@ package storage
 import (
 	"encoding/json"
 	"fmt"
+	"io"
 	"os"
 	"path/filepath"
+	"sort"
+	"strings"
 	"sync"
 	"time"
 )
 
-// JSONStorage JSON 文件存储实现
+// JSONStorage stores task state in JSON files.
+// Public methods own the mutex; private helpers never re-acquire it.
 type JSONStorage struct {
-	dataDir  string       // 数据根目录
-	tasksDir string       // 任务数据目录
-	mu       sync.RWMutex // 读写锁
+	dataDir  string
+	tasksDir string
+	mu       sync.RWMutex
 }
 
-// NewJSONStorage 创建 JSON 存储实例
 func NewJSONStorage(dataDir string) *JSONStorage {
 	return &JSONStorage{
 		dataDir:  dataDir,
@@ -24,71 +27,40 @@ func NewJSONStorage(dataDir string) *JSONStorage {
 	}
 }
 
-// Initialize 初始化存储，创建必要的目录结构
 func (js *JSONStorage) Initialize() error {
 	js.mu.Lock()
 	defer js.mu.Unlock()
+	return js.initializeLocked()
+}
 
-	// 创建目录结构
-	dirs := []string{
-		js.tasksDir,
-		filepath.Join(js.tasksDir, ".backup"),
-	}
-
-	for _, dir := range dirs {
+func (js *JSONStorage) initializeLocked() error {
+	for _, dir := range []string{js.tasksDir, filepath.Join(js.tasksDir, ".backup")} {
 		if err := os.MkdirAll(dir, 0755); err != nil {
 			return fmt.Errorf("创建目录 %s 失败: %w", dir, err)
 		}
 	}
-
 	return nil
 }
 
-// SaveTask 保存单个任务的完整数据
 func (js *JSONStorage) SaveTask(task *TaskData) error {
-	js.mu.Lock()
-	defer js.mu.Unlock()
-
 	if task == nil {
 		return fmt.Errorf("任务数据不能为空")
 	}
 
-	taskFile := js.getTaskFilePath(task.TaskID)
-	tmpFile := taskFile + ".tmp"
+	js.mu.Lock()
+	defer js.mu.Unlock()
 
-	// 如果文件已存在，先备份
-	if _, err := os.Stat(taskFile); err == nil {
-		js.createBackup(taskFile)
+	if err := js.initializeLocked(); err != nil {
+		return err
 	}
-
-	// 序列化为 JSON
-	data, err := json.MarshalIndent(task, "", "  ")
-	if err != nil {
-		return fmt.Errorf("序列化任务数据失败: %w", err)
-	}
-
-	// 写入临时文件
-	if err := os.WriteFile(tmpFile, data, 0644); err != nil {
-		return fmt.Errorf("写入临时文件失败: %w", err)
-	}
-
-	// 原子重命名
-	if err := os.Rename(tmpFile, taskFile); err != nil {
-		os.Remove(tmpFile) // 清理临时文件
-		return fmt.Errorf("原子重命名失败: %w", err)
-	}
-
-	return nil
+	return js.writeJSONAtomicallyLocked(js.getTaskFilePath(task.TaskID), task)
 }
 
-// LoadTask 根据任务ID加载任务的完整数据
 func (js *JSONStorage) LoadTask(taskID string) (*TaskData, error) {
 	js.mu.RLock()
 	defer js.mu.RUnlock()
 
-	taskFile := js.getTaskFilePath(taskID)
-
-	data, err := os.ReadFile(taskFile)
+	data, err := os.ReadFile(js.getTaskFilePath(taskID))
 	if err != nil {
 		return nil, fmt.Errorf("读取任务文件失败: %w", err)
 	}
@@ -97,88 +69,67 @@ func (js *JSONStorage) LoadTask(taskID string) (*TaskData, error) {
 	if err := json.Unmarshal(data, &task); err != nil {
 		return nil, fmt.Errorf("解析任务数据失败: %w", err)
 	}
-
 	return &task, nil
 }
 
-// DeleteTask 删除单个任务的数据文件
 func (js *JSONStorage) DeleteTask(taskID string) error {
 	js.mu.Lock()
 	defer js.mu.Unlock()
 
 	taskFile := js.getTaskFilePath(taskID)
-
-	// 先备份
-	if _, err := os.Stat(taskFile); err == nil {
-		js.createBackup(taskFile)
+	if _, err := os.Stat(taskFile); err != nil {
+		if os.IsNotExist(err) {
+			return nil
+		}
+		return fmt.Errorf("检查任务文件失败: %w", err)
 	}
 
-	// 删除文件
+	if err := js.backupFileLocked(taskFile); err != nil {
+		return fmt.Errorf("备份任务文件失败: %w", err)
+	}
 	if err := os.Remove(taskFile); err != nil && !os.IsNotExist(err) {
 		return fmt.Errorf("删除任务文件失败: %w", err)
 	}
-
 	return nil
 }
 
-// SaveIndex 保存任务索引文件
 func (js *JSONStorage) SaveIndex(index *TaskIndex) error {
-	js.mu.Lock()
-	defer js.mu.Unlock()
-
 	if index == nil {
 		return fmt.Errorf("索引数据不能为空")
 	}
 
-	index.Version = "1.0"
-	index.LastUpdated = time.Now()
+	js.mu.Lock()
+	defer js.mu.Unlock()
 
-	indexFile := js.getIndexFilePath()
-	tmpFile := indexFile + ".tmp"
-
-	// 备份旧索引
-	if _, err := os.Stat(indexFile); err == nil {
-		js.createBackup(indexFile)
+	if err := js.initializeLocked(); err != nil {
+		return err
 	}
 
-	// 序列化
-	data, err := json.MarshalIndent(index, "", "  ")
-	if err != nil {
-		return fmt.Errorf("序列化索引失败: %w", err)
-	}
+	snapshot := *index
+	snapshot.Tasks = append([]TaskMeta(nil), index.Tasks...)
+	snapshot.Version = "1.1"
+	snapshot.LastUpdated = time.Now()
 
-	// 写入临时文件
-	if err := os.WriteFile(tmpFile, data, 0644); err != nil {
-		return fmt.Errorf("写入索引临时文件失败: %w", err)
-	}
-
-	// 原子重命名
-	if err := os.Rename(tmpFile, indexFile); err != nil {
-		os.Remove(tmpFile)
-		return fmt.Errorf("原子重命名索引文件失败: %w", err)
-	}
-
-	return nil
+	return js.writeJSONAtomicallyLocked(js.getIndexFilePath(), &snapshot)
 }
 
-// LoadIndex 加载任务索引文件
 func (js *JSONStorage) LoadIndex() (*TaskIndex, error) {
 	js.mu.RLock()
 	defer js.mu.RUnlock()
+	return js.loadIndexLocked()
+}
 
+func (js *JSONStorage) loadIndexLocked() (*TaskIndex, error) {
 	indexFile := js.getIndexFilePath()
-
-	// 文件不存在时返回空索引
-	if _, err := os.Stat(indexFile); os.IsNotExist(err) {
-		return &TaskIndex{
-			Version:     "1.0",
-			LastUpdated: time.Now(),
-			Tasks:       []TaskMeta{},
-		}, nil
-	}
-
 	data, err := os.ReadFile(indexFile)
 	if err != nil {
+		if os.IsNotExist(err) {
+			return &TaskIndex{
+				Version:     "1.1",
+				LastUpdated: time.Now(),
+				Tasks:       []TaskMeta{},
+			}, nil
+		}
 		return nil, fmt.Errorf("读取索引文件失败: %w", err)
 	}
 
@@ -186,112 +137,200 @@ func (js *JSONStorage) LoadIndex() (*TaskIndex, error) {
 	if err := json.Unmarshal(data, &index); err != nil {
 		return nil, fmt.Errorf("解析索引文件失败: %w", err)
 	}
-
+	if index.Tasks == nil {
+		index.Tasks = []TaskMeta{}
+	}
 	return &index, nil
 }
 
-// ListTasks 列出所有任务的元数据
 func (js *JSONStorage) ListTasks() ([]TaskMeta, error) {
 	index, err := js.LoadIndex()
 	if err != nil {
 		return nil, err
 	}
-	return index.Tasks, nil
+	return append([]TaskMeta(nil), index.Tasks...), nil
 }
 
-// CleanOldTasks 清理指定时间之前的旧任务
 func (js *JSONStorage) CleanOldTasks(beforeTime time.Time) error {
 	js.mu.Lock()
 	defer js.mu.Unlock()
 
-	// 加载索引
-	index, err := js.LoadIndex()
+	index, err := js.loadIndexLocked()
 	if err != nil {
 		return err
 	}
 
-	var keptTasks []TaskMeta
-	deletedCount := 0
+	kept := make([]TaskMeta, 0, len(index.Tasks))
+	changed := false
 
 	for _, task := range index.Tasks {
-		// 检查是否需要删除
-		if task.EndTime.Before(beforeTime) || task.Status == "failed" {
-			// 删除任务文件
-			taskFile := js.getTaskFilePath(task.TaskID)
-			js.createBackup(taskFile)
-			os.Remove(taskFile)
-			deletedCount++
-		} else {
-			keptTasks = append(keptTasks, task)
+		expired := !task.EndTime.IsZero() && task.EndTime.Before(beforeTime)
+		if !expired && task.Status != "failed" {
+			kept = append(kept, task)
+			continue
 		}
+
+		taskFile := js.getTaskFilePath(task.TaskID)
+		if _, statErr := os.Stat(taskFile); statErr == nil {
+			if err := js.backupFileLocked(taskFile); err != nil {
+				return fmt.Errorf("备份旧任务 %s 失败: %w", task.TaskID, err)
+			}
+			if err := os.Remove(taskFile); err != nil && !os.IsNotExist(err) {
+				return fmt.Errorf("删除旧任务 %s 失败: %w", task.TaskID, err)
+			}
+		} else if !os.IsNotExist(statErr) {
+			return fmt.Errorf("检查旧任务 %s 失败: %w", task.TaskID, statErr)
+		}
+		changed = true
 	}
 
-	if deletedCount > 0 {
-		// 更新索引
-		index.Tasks = keptTasks
-		index.LastUpdated = time.Now()
-		data, _ := json.MarshalIndent(index, "", "  ")
-		os.WriteFile(js.getIndexFilePath()+".tmp", data, 0644)
-		os.Rename(js.getIndexFilePath()+".tmp", js.getIndexFilePath())
+	if !changed {
+		return nil
 	}
 
+	index.Tasks = kept
+	index.Version = "1.1"
+	index.LastUpdated = time.Now()
+	return js.writeJSONAtomicallyLocked(js.getIndexFilePath(), index)
+}
+
+func (js *JSONStorage) writeJSONAtomicallyLocked(target string, value interface{}) error {
+	data, err := json.MarshalIndent(value, "", "  ")
+	if err != nil {
+		return fmt.Errorf("序列化 JSON 失败: %w", err)
+	}
+
+	dir := filepath.Dir(target)
+	if err := os.MkdirAll(dir, 0755); err != nil {
+		return fmt.Errorf("创建目录失败: %w", err)
+	}
+
+	tmp, err := os.CreateTemp(dir, "."+filepath.Base(target)+".tmp-*")
+	if err != nil {
+		return fmt.Errorf("创建临时文件失败: %w", err)
+	}
+	tmpName := tmp.Name()
+	cleanupTemp := true
+	defer func() {
+		if cleanupTemp {
+			_ = os.Remove(tmpName)
+		}
+	}()
+
+	if err := tmp.Chmod(0644); err != nil {
+		_ = tmp.Close()
+		return fmt.Errorf("设置临时文件权限失败: %w", err)
+	}
+	if _, err := tmp.Write(data); err != nil {
+		_ = tmp.Close()
+		return fmt.Errorf("写入临时文件失败: %w", err)
+	}
+	if err := tmp.Sync(); err != nil {
+		_ = tmp.Close()
+		return fmt.Errorf("同步临时文件失败: %w", err)
+	}
+	if err := tmp.Close(); err != nil {
+		return fmt.Errorf("关闭临时文件失败: %w", err)
+	}
+
+	if _, err := os.Stat(target); err == nil {
+		if err := js.backupFileLocked(target); err != nil {
+			return fmt.Errorf("备份旧文件失败: %w", err)
+		}
+	} else if !os.IsNotExist(err) {
+		return fmt.Errorf("检查目标文件失败: %w", err)
+	}
+
+	if err := os.Rename(tmpName, target); err != nil {
+		return fmt.Errorf("原子替换失败: %w", err)
+	}
+	cleanupTemp = false
 	return nil
 }
 
-// getTaskFilePath 获取任务数据文件路径
+func (js *JSONStorage) backupFileLocked(filePath string) error {
+	src, err := os.Open(filePath)
+	if err != nil {
+		if os.IsNotExist(err) {
+			return nil
+		}
+		return err
+	}
+	defer src.Close()
+
+	backupDir := filepath.Join(js.tasksDir, ".backup")
+	if err := os.MkdirAll(backupDir, 0755); err != nil {
+		return err
+	}
+
+	timestamp := time.Now().Format("20060102-150405.000000000")
+	backupName := filepath.Base(filePath) + ".bak." + timestamp
+	backupPath := filepath.Join(backupDir, backupName)
+
+	dst, err := os.OpenFile(backupPath, os.O_CREATE|os.O_WRONLY|os.O_EXCL, 0644)
+	if err != nil {
+		return err
+	}
+	if _, err := io.Copy(dst, src); err != nil {
+		_ = dst.Close()
+		_ = os.Remove(backupPath)
+		return err
+	}
+	if err := dst.Sync(); err != nil {
+		_ = dst.Close()
+		_ = os.Remove(backupPath)
+		return err
+	}
+	if err := dst.Close(); err != nil {
+		_ = os.Remove(backupPath)
+		return err
+	}
+
+	return js.cleanOldBackupsLocked(backupDir, filepath.Base(filePath)+".bak.")
+}
+
+func (js *JSONStorage) cleanOldBackupsLocked(backupDir, prefix string) error {
+	entries, err := os.ReadDir(backupDir)
+	if err != nil {
+		return err
+	}
+
+	type backupFile struct {
+		path    string
+		modTime time.Time
+	}
+	backups := make([]backupFile, 0)
+
+	for _, entry := range entries {
+		if entry.IsDir() || !strings.HasPrefix(entry.Name(), prefix) {
+			continue
+		}
+		info, err := entry.Info()
+		if err != nil {
+			return err
+		}
+		backups = append(backups, backupFile{
+			path:    filepath.Join(backupDir, entry.Name()),
+			modTime: info.ModTime(),
+		})
+	}
+
+	sort.Slice(backups, func(i, j int) bool {
+		return backups[i].modTime.After(backups[j].modTime)
+	})
+
+	for i := 10; i < len(backups); i++ {
+		if err := os.Remove(backups[i].path); err != nil && !os.IsNotExist(err) {
+			return err
+		}
+	}
+	return nil
+}
+
 func (js *JSONStorage) getTaskFilePath(taskID string) string {
 	return filepath.Join(js.tasksDir, taskID+".json")
 }
 
-// getIndexFilePath 获取索引文件路径
 func (js *JSONStorage) getIndexFilePath() string {
 	return filepath.Join(js.tasksDir, "tasks.json")
-}
-
-// createBackup 创建备份文件
-func (js *JSONStorage) createBackup(filePath string) {
-	timestamp := time.Now().Format("20060102-150405")
-	backupDir := filepath.Join(js.tasksDir, ".backup")
-	backupName := filepath.Base(filePath) + ".bak." + timestamp
-	backupPath := filepath.Join(backupDir, backupName)
-
-	os.Rename(filePath, backupPath)
-
-	// 清理超过 10 个的旧备份
-	js.cleanOldBackups(backupDir, filepath.Base(filePath)+".bak.")
-}
-
-// cleanOldBackups 清理旧备份文件，保留最新的 10 个
-func (js *JSONStorage) cleanOldBackups(backupDir, prefix string) {
-	entries, err := os.ReadDir(backupDir)
-	if err != nil {
-		return
-	}
-
-	var backups []string
-	for _, entry := range entries {
-		if entry.IsDir() {
-			continue
-		}
-		name := entry.Name()
-		if len(name) > len(prefix) && name[:len(prefix)] == prefix {
-			backups = append(backups, filepath.Join(backupDir, name))
-		}
-	}
-
-	// 按修改时间排序（最新的在前）
-	for i := 0; i < len(backups)-1; i++ {
-		for j := i + 1; j < len(backups); j++ {
-			infoI, _ := os.Stat(backups[i])
-			infoJ, _ := os.Stat(backups[j])
-			if infoI.ModTime().Before(infoJ.ModTime()) {
-				backups[i], backups[j] = backups[j], backups[i]
-			}
-		}
-	}
-
-	// 删除超过 10 个的旧备份
-	for i := 10; i < len(backups); i++ {
-		os.Remove(backups[i])
-	}
 }
