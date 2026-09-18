@@ -21,8 +21,8 @@ func main() {
 
 	cfg, err := config.LoadDefault()
 	if err != nil {
-		utils.LogError("Failed to load config, using safe defaults: " + err.Error())
-		cfg = config.Default()
+		utils.LogError("Failed to load/validate config: " + err.Error())
+		os.Exit(1)
 	}
 
 	ctx, cancel := context.WithCancel(context.Background())
